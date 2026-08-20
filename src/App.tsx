@@ -1,4 +1,4 @@
-// VERSION 8 - The "Clone Engine" Fix
+// VERSION 9
 import { useState, useEffect } from 'react';
 import type { ChangeEvent } from 'react';
 import { Camera, Plus, FileDown, ChevronLeft, ChevronRight, CheckCircle2, AlertTriangle, Image as ImageIcon, Trash2, Pencil } from 'lucide-react';
@@ -217,54 +217,47 @@ export default function App() {
   };
 
   const exportToPDF = () => {
+    // 1. Force the page to the absolute top to prevent html2canvas offset miscalculations
     window.scrollTo(0, 0);
     setIsGeneratingPDF(true);
     
-    // Give the browser 500ms to paint the new desktop layout behind the loading screen
+    // 2. CRITICAL FIX: Clean up any invisible html2pdf page break markers leftover from previous prints
+    const staleBreaks = document.querySelectorAll('.html2pdf__page-break');
+    staleBreaks.forEach(b => b.remove());
+
+    // Give the browser 500ms to fully paint the new expanded layout and text nodes before taking the snapshot
     setTimeout(() => {
-      const originalElement = document.getElementById('pdf-content');
-      if (!originalElement) {
+      const element = document.getElementById('pdf-content');
+      if (!element) {
         setIsGeneratingPDF(false);
         return;
       }
       
-      // CREATE THE CLONE: We copy the entire document tree so html2pdf can safely mutate 
-      // the clone's math/spacing without permanently corrupting your live app layout.
-      const clonedElement = originalElement.cloneNode(true) as HTMLElement;
-      clonedElement.id = 'pdf-content-clone';
-      clonedElement.style.position = 'absolute';
-      clonedElement.style.top = '0';
-      clonedElement.style.left = '0';
-      clonedElement.style.zIndex = '-9999'; // Hide it behind the full-screen loading overlay
-      
-      // Attach clone to DOM so html2canvas can read its styles
-      originalElement.parentNode?.appendChild(clonedElement);
-      
       const opt = {
-        margin:       10, // Millimeters of pure margin
+        margin:       15, // Millimeters of pure margin for perfect centering
         filename:     `Victor_Inspection_${new Date().toLocaleDateString().replace(/\//g, '-')}.pdf`,
         image:        { type: 'jpeg', quality: 0.98 },
-        html2canvas:  { scale: 2, useCORS: true, scrollY: 0 },
+        html2canvas:  { 
+          scale: 2, 
+          useCORS: true, 
+          scrollY: 0, 
+          windowWidth: 800 // Explicitly locks the width so right-side text is never clipped
+        },
         jsPDF:        { unit: 'mm', format: 'letter', orientation: 'portrait' },
+        // Enforce page break logic: split before .print-page-break, but NEVER split inside .page-break-inside-avoid
         pagebreak:    { mode: ['css', 'legacy'], before: '.print-page-break', avoid: '.page-break-inside-avoid' } 
       };
       
       try {
         // @ts-ignore
-        window.html2pdf().set(opt).from(clonedElement).save().then(() => {
-          // TRASH THE CLONE: Wipe the mutated DOM node from memory
-          if (clonedElement.parentNode) {
-            clonedElement.parentNode.removeChild(clonedElement);
-          }
-          setIsGeneratingPDF(false); // Return app to mobile view
+        window.html2pdf().set(opt).from(element).save().then(() => {
+          setIsGeneratingPDF(false); // Return back to mobile app view
         }).catch((err: any) => {
           console.error("PDF generation failed:", err);
-          if (clonedElement.parentNode) clonedElement.parentNode.removeChild(clonedElement);
           setIsGeneratingPDF(false);
           alert("Something went wrong while generating the PDF.");
         });
       } catch (err) {
-        if (clonedElement.parentNode) clonedElement.parentNode.removeChild(clonedElement);
         setIsGeneratingPDF(false);
         alert("PDF engine is still loading. Please try again in a few seconds.");
       }
@@ -274,12 +267,12 @@ export default function App() {
   return (
     <div className="min-h-screen bg-gray-50 pb-20 font-sans">
       
-      {/* Full-Screen Loading Overlay to mask the background formatting process */}
+      {/* Floating Loading Overlay - Does NOT use 'fixed inset-0 bg-white' to prevent the blank page bug */}
       {isGeneratingPDF && (
-        <div className="fixed inset-0 bg-white z-[9999] flex flex-col items-center justify-center">
+        <div className="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-white/95 backdrop-blur-sm p-8 rounded-2xl shadow-2xl z-[9999] flex flex-col items-center justify-center border-2 border-[#00843D]">
           <div className="w-16 h-16 border-8 border-gray-100 border-t-[#00843D] rounded-full animate-spin mb-6"></div>
           <h2 className="text-3xl font-black text-[#00843D] mb-2">Generating PDF</h2>
-          <p className="text-gray-600 font-medium text-lg">Formatting your report...</p>
+          <p className="text-gray-600 font-medium text-center">Formatting your report...</p>
         </div>
       )}
 
@@ -316,10 +309,13 @@ export default function App() {
         </header>
       )}
 
-      {/* Main Content Area - Expands to full 800px width for the PDF generator */}
+      {/* 
+        Main Content Area 
+        CRITICAL FIX: Removes mx-auto during generation to stop left margin issues, but keeps the element in the document flow (no absolute) to stop the blank white page bug.
+      */}
       <main 
         id="pdf-content" 
-        className={`mx-auto ${isGeneratingPDF ? 'w-[800px] bg-white text-black px-8 py-4' : 'max-w-md p-4'}`}
+        className={isGeneratingPDF ? 'w-[800px] bg-white text-black px-10 py-8 min-h-screen' : 'max-w-md mx-auto p-4'}
       >
         {stations.map((station, index) => (
           <div 
@@ -327,7 +323,7 @@ export default function App() {
             className={`${index === currentIndex || isGeneratingPDF ? 'block' : 'hidden'} ${index > 0 && isGeneratingPDF ? 'print-page-break pt-8' : ''}`}
           >
             
-            {/* Custom High-Res PDF Header (Always remains mounted to prevent missing text bugs) */}
+            {/* Custom High-Res PDF Header */}
             <div className={`p-4 border-b-4 border-[#00843D] mb-8 items-center justify-between ${isGeneratingPDF ? 'flex' : 'hidden'}`}>
               <div>
                 <h1 className="text-4xl font-black text-[#00843D]">Inspection Report</h1>
@@ -336,7 +332,7 @@ export default function App() {
               <img src={VICTOR_LOGO} alt="Victor Logo" className="h-20 w-20 object-contain" />
             </div>
 
-            {/* Station Title - Hardcoded text-gray-900 so it can't accidentally turn white */}
+            {/* Station Title */}
             <h2 className={`font-bold px-4 bg-gray-100 border-[#FFD100] text-gray-900 ${isGeneratingPDF ? 'text-3xl mb-6 py-3 border-l-8 block' : 'hidden'}`}>
               {station.name}
             </h2>
@@ -382,8 +378,7 @@ export default function App() {
                     </div>
                   )}
 
-                  {/* Comments Box (Mobile) OR Expanding Paragraph (PDF) */}
-                  <div className={`flex gap-2 ${isGeneratingPDF ? 'block mt-2' : ''}`}>
+                  <div className={`flex gap-2 ${isGeneratingPDF ? 'block mt-2 w-full overflow-hidden' : ''}`}>
                     
                     {!isGeneratingPDF ? (
                       <textarea
@@ -396,7 +391,7 @@ export default function App() {
                       />
                     ) : (
                       field.comments && (
-                        <div className="mt-2 text-gray-700 bg-gray-50 p-4 rounded-lg border border-gray-100 whitespace-pre-wrap text-base">
+                        <div className="mt-2 text-gray-700 bg-gray-50 py-4 px-5 rounded-lg border border-gray-100 whitespace-pre-wrap text-base break-words w-full overflow-hidden">
                           <strong>Comments: </strong>{field.comments}
                         </div>
                       )
@@ -437,7 +432,6 @@ export default function App() {
         ))}
       </main>
 
-      {/* Bottom Navigation - Hidden during PDF build */}
       {!isGeneratingPDF && (
         <footer className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 p-4 pb-safe shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
           <div className="max-w-md mx-auto flex items-center justify-between">
@@ -472,7 +466,7 @@ export default function App() {
         </footer>
       )}
 
-      {/* The simple, proven CSS rules for html2pdf page breaks */}
+      {/* Safety CSS for PDF engine */}
       <style dangerouslySetInnerHTML={{__html: `
         .page-break-inside-avoid {
           page-break-inside: avoid !important;

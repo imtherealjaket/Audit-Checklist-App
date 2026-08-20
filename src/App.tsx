@@ -126,6 +126,7 @@ export default function App() {
   const [isLoaded, setIsLoaded] = useState(false);
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
 
+  // Pre-load the professional PDF generation library so it's ready instantly
   useEffect(() => {
     if (!document.getElementById('html2pdf-script')) {
       const script = document.createElement('script');
@@ -135,6 +136,7 @@ export default function App() {
     }
   }, []);
 
+  // Load data from IndexedDB
   useEffect(() => {
     const loadData = async () => {
       const savedData = await loadFromDB('stations-data');
@@ -148,6 +150,7 @@ export default function App() {
     loadData();
   }, []);
 
+  // Auto-save data
   useEffect(() => {
     if (isLoaded) saveToDB('stations-data', stations);
   }, [stations, isLoaded]);
@@ -215,6 +218,7 @@ export default function App() {
   const exportToPDF = () => {
     setIsGeneratingPDF(true);
     
+    // Give the browser 500ms to fully paint the new expanded layout and text nodes before taking the snapshot
     setTimeout(() => {
       const element = document.getElementById('pdf-content');
       if (!element) {
@@ -223,26 +227,19 @@ export default function App() {
       }
       
       const opt = {
-        margin:       15, // Strict 15mm margin on all 4 sides for perfect centering
+        margin:       10, // Millimeters of pure margin
         filename:     `Victor_Inspection_${new Date().toLocaleDateString().replace(/\//g, '-')}.pdf`,
         image:        { type: 'jpeg', quality: 0.98 },
-        html2canvas:  { 
-          scale: 2, 
-          useCORS: true, 
-          windowWidth: 800, // Explicitly lock the virtual capture width
-          x: 0,             // Force the snapshot to start at X: 0
-          y: 0,             // Force the snapshot to start at Y: 0
-          scrollX: 0,       // Ignore mobile scrolling
-          scrollY: 0
-        },
+        html2canvas:  { scale: 2, useCORS: true },
         jsPDF:        { unit: 'mm', format: 'letter', orientation: 'portrait' },
+        // Enforce page break logic: split before .print-page-break, but NEVER split inside .page-break-inside-avoid
         pagebreak:    { mode: ['css', 'legacy'], before: '.print-page-break', avoid: '.page-break-inside-avoid' } 
       };
       
       try {
         // @ts-ignore
         window.html2pdf().set(opt).from(element).save().then(() => {
-          setIsGeneratingPDF(false); 
+          setIsGeneratingPDF(false); // Return back to mobile app view
         }).catch((err: any) => {
           console.error("PDF generation failed:", err);
           setIsGeneratingPDF(false);
@@ -258,15 +255,16 @@ export default function App() {
   return (
     <div className="min-h-screen bg-gray-50 pb-20 font-sans">
       
-      {/* High z-index loading screen hides the document reshaping */}
+      {/* Full-Screen Loading Overlay to mask the background formatting process */}
       {isGeneratingPDF && (
-        <div className="fixed inset-0 bg-white z-[999999] flex flex-col items-center justify-center">
+        <div className="fixed inset-0 bg-white z-[9999] flex flex-col items-center justify-center">
           <div className="w-16 h-16 border-8 border-gray-100 border-t-[#00843D] rounded-full animate-spin mb-6"></div>
           <h2 className="text-3xl font-black text-[#00843D] mb-2">Generating PDF</h2>
           <p className="text-gray-600 font-medium text-lg">Formatting your report...</p>
         </div>
       )}
 
+      {/* Top Header - Hidden during PDF build */}
       {!isGeneratingPDF && (
         <header className="bg-[#00843D] text-white p-4 shadow-md sticky top-0 z-10">
           <div className="flex justify-between items-center max-w-md mx-auto">
@@ -299,11 +297,10 @@ export default function App() {
         </header>
       )}
 
-      {/* Main Content Area */}
-      {/* EXTREMELY IMPORTANT: During generation, we use 'absolute top-0 left-0 m-0' instead of 'mx-auto' to lock it to coordinate 0,0 and prevent offset rendering bugs */}
+      {/* Main Content Area - Expands to full 800px width for the PDF generator */}
       <main 
         id="pdf-content" 
-        className={isGeneratingPDF ? 'w-[800px] bg-white text-black px-10 py-4 m-0 absolute top-0 left-0 z-10' : 'max-w-md mx-auto p-4'}
+        className={`mx-auto ${isGeneratingPDF ? 'w-[800px] bg-white text-black px-8 py-4' : 'max-w-md p-4'}`}
       >
         {stations.map((station, index) => (
           <div 
@@ -311,16 +308,16 @@ export default function App() {
             className={`${index === currentIndex || isGeneratingPDF ? 'block' : 'hidden'} ${index > 0 && isGeneratingPDF ? 'print-page-break pt-8' : ''}`}
           >
             
-            {isGeneratingPDF && (
-              <div className="flex p-4 border-b-4 border-[#00843D] mb-8 items-center justify-between">
-                <div>
-                  <h1 className="text-4xl font-black text-[#00843D]">Inspection Report</h1>
-                  <p className="text-gray-600 font-medium mt-2 text-lg">Generated on: {new Date().toLocaleDateString()}</p>
-                </div>
-                <img src={VICTOR_LOGO} alt="Victor Logo" className="h-20 w-20 object-contain" />
+            {/* Custom High-Res PDF Header (Always remains mounted to prevent missing text bugs) */}
+            <div className={`p-4 border-b-4 border-[#00843D] mb-8 items-center justify-between ${isGeneratingPDF ? 'flex' : 'hidden'}`}>
+              <div>
+                <h1 className="text-4xl font-black text-[#00843D]">Inspection Report</h1>
+                <p className="text-gray-600 font-medium mt-2 text-lg">Generated on: {new Date().toLocaleDateString()}</p>
               </div>
-            )}
+              <img src={VICTOR_LOGO} alt="Victor Logo" className="h-20 w-20 object-contain" />
+            </div>
 
+            {/* Station Title - Hardcoded text-gray-900 so it can't accidentally turn white */}
             <h2 className={`font-bold px-4 bg-gray-100 border-[#FFD100] text-gray-900 ${isGeneratingPDF ? 'text-3xl mb-6 py-3 border-l-8 block' : 'hidden'}`}>
               {station.name}
             </h2>
@@ -329,11 +326,13 @@ export default function App() {
               {station.fields.map((field) => (
                 <div 
                   key={field.id} 
+                  // CRITICAL: Added back page-break-inside-avoid so html2pdf knows not to chop this element in half
                   className={`bg-white page-break-inside-avoid ${isGeneratingPDF ? 'border-b-2 border-gray-200 pb-6 mb-6' : 'p-4 rounded-xl shadow-sm border border-gray-100'}`}
                 >
                   
                   <h3 className={`font-semibold text-gray-800 mb-3 ${isGeneratingPDF ? 'text-xl' : 'text-base'}`}>{field.name}</h3>
                   
+                  {/* Status Buttons (Mobile) OR Text Status (PDF) */}
                   {!isGeneratingPDF ? (
                     <div className="flex space-x-3 mb-3">
                       <button
@@ -365,7 +364,8 @@ export default function App() {
                     </div>
                   )}
 
-                  <div className={`flex gap-2 ${isGeneratingPDF ? 'block mt-2 w-full overflow-hidden' : ''}`}>
+                  {/* Comments Box (Mobile) OR Expanding Paragraph (PDF) */}
+                  <div className={`flex gap-2 ${isGeneratingPDF ? 'block mt-2' : ''}`}>
                     
                     {!isGeneratingPDF ? (
                       <textarea
@@ -378,8 +378,7 @@ export default function App() {
                       />
                     ) : (
                       field.comments && (
-                        // Added 'overflow-hidden' and 'w-full' to prevent string breaking bounds
-                        <div className="mt-2 text-gray-700 bg-gray-50 py-4 px-5 rounded-lg border border-gray-100 whitespace-pre-wrap text-base break-words w-full overflow-hidden">
+                        <div className="mt-2 text-gray-700 bg-gray-50 p-4 rounded-lg border border-gray-100 whitespace-pre-wrap text-base">
                           <strong>Comments: </strong>{field.comments}
                         </div>
                       )
@@ -403,6 +402,7 @@ export default function App() {
                     )}
                   </div>
 
+                  {/* Photo Preview - Scales massively up for beautiful PDF layout */}
                   {field.photoUrl && (
                     <div className={`mt-3 relative rounded-lg overflow-hidden border border-gray-200 ${isGeneratingPDF ? 'mt-4 border-none flex justify-start' : ''}`}>
                       <img 
@@ -419,6 +419,7 @@ export default function App() {
         ))}
       </main>
 
+      {/* Bottom Navigation - Hidden during PDF build */}
       {!isGeneratingPDF && (
         <footer className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 p-4 pb-safe shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
           <div className="max-w-md mx-auto flex items-center justify-between">

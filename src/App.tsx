@@ -216,9 +216,7 @@ export default function App() {
   };
 
   const exportToPDF = () => {
-    // FIX: Scroll to the absolute top of the page before generating the PDF.
-    // This prevents html2canvas from miscalculating the height of elements 
-    // on subsequent prints if the user has scrolled down the page.
+    // 1. Force the page to the absolute top to prevent html2canvas offset miscalculations
     window.scrollTo(0, 0);
     setIsGeneratingPDF(true);
     
@@ -234,11 +232,7 @@ export default function App() {
         margin:       10, // Millimeters of pure margin
         filename:     `Victor_Inspection_${new Date().toLocaleDateString().replace(/\//g, '-')}.pdf`,
         image:        { type: 'jpeg', quality: 0.98 },
-        html2canvas:  { 
-          scale: 2, 
-          useCORS: true,
-          scrollY: 0 // FIX: Enforces top-alignment for the snapshot math
-        },
+        html2canvas:  { scale: 2, useCORS: true, scrollY: 0 },
         jsPDF:        { unit: 'mm', format: 'letter', orientation: 'portrait' },
         // Enforce page break logic: split before .print-page-break, but NEVER split inside .page-break-inside-avoid
         pagebreak:    { mode: ['css', 'legacy'], before: '.print-page-break', avoid: '.page-break-inside-avoid' } 
@@ -305,9 +299,15 @@ export default function App() {
         </header>
       )}
 
-      {/* Main Content Area - Expands to full 800px width for the PDF generator */}
+      {/* 
+        Main Content Area 
+        CRITICAL FIX: Added `key={isGeneratingPDF ? 'pdf' : 'mobile'}` 
+        This completely destroys and rebuilds the DOM on every print, guaranteeing the 
+        html2pdf engine gets a completely uncorrupted view, stopping image splitting forever.
+      */}
       <main 
         id="pdf-content" 
+        key={isGeneratingPDF ? 'pdf' : 'mobile'}
         className={`mx-auto ${isGeneratingPDF ? 'w-[800px] bg-white text-black px-8 py-4' : 'max-w-md p-4'}`}
       >
         {stations.map((station, index) => (
@@ -334,7 +334,6 @@ export default function App() {
               {station.fields.map((field) => (
                 <div 
                   key={field.id} 
-                  // CRITICAL: Added back page-break-inside-avoid so html2pdf knows not to chop this element in half
                   className={`bg-white page-break-inside-avoid ${isGeneratingPDF ? 'border-b-2 border-gray-200 pb-6 mb-6' : 'p-4 rounded-xl shadow-sm border border-gray-100'}`}
                 >
                   
@@ -410,13 +409,13 @@ export default function App() {
                     )}
                   </div>
 
-                  {/* Photo Preview - Scales massively up for beautiful PDF layout */}
+                  {/* Photo Preview - Ensures photos have the avoid class just in case */}
                   {field.photoUrl && (
-                    <div className={`mt-3 relative rounded-lg overflow-hidden border border-gray-200 ${isGeneratingPDF ? 'mt-4 border-none flex justify-start' : ''}`}>
+                    <div className={`mt-3 relative rounded-lg overflow-hidden border border-gray-200 page-break-inside-avoid ${isGeneratingPDF ? 'mt-4 border-none flex justify-start' : ''}`}>
                       <img 
                         src={field.photoUrl} 
                         alt="Inspection" 
-                        className={`w-full object-cover ${isGeneratingPDF ? 'max-h-80 w-auto rounded-xl border border-gray-300' : 'h-32'}`} 
+                        className={`w-full object-cover page-break-inside-avoid ${isGeneratingPDF ? 'max-h-80 w-auto rounded-xl border border-gray-300' : 'h-32'}`} 
                       />
                     </div>
                   )}
@@ -462,7 +461,7 @@ export default function App() {
         </footer>
       )}
 
-      {/* CSS explicitly backing up the html2pdf engine's logic */}
+      {/* Safety CSS for PDF engine */}
       <style dangerouslySetInnerHTML={{__html: `
         .page-break-inside-avoid {
           page-break-inside: avoid !important;

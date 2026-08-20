@@ -1,7 +1,7 @@
-// VERSION 11
+// VERSION 12
 import { useState, useEffect } from 'react';
 import type { ChangeEvent } from 'react';
-import { Camera, Plus, FileDown, ChevronLeft, ChevronRight, CheckCircle2, AlertTriangle, Image as ImageIcon, Trash2, Pencil } from 'lucide-react';
+import { Camera, Plus, FileDown, ChevronLeft, ChevronRight, CheckCircle2, AlertTriangle, Image as ImageIcon, Trash2, Pencil, X } from 'lucide-react';
 
 const VICTOR_LOGO = "/IMG_0310.jpeg";
 
@@ -99,9 +99,9 @@ const compressImage = (file: File): Promise<string> => {
       img.src = event.target?.result as string;
       img.onload = () => {
         const canvas = document.createElement('canvas');
-        // FIX 1: Shrunk max dimensions to 600x600 to prevent Safari memory limits
-        const MAX_WIDTH = 600;
-        const MAX_HEIGHT = 600;
+        // Restored high-quality dimensions
+        const MAX_WIDTH = 1000;
+        const MAX_HEIGHT = 1000;
         let width = img.width;
         let height = img.height;
 
@@ -127,7 +127,7 @@ export default function App() {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isLoaded, setIsLoaded] = useState(false);
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
-  const [refreshKey, setRefreshKey] = useState(0); // Used to force Safari to reload images
+  const [viewingPhoto, setViewingPhoto] = useState<string | null>(null);
 
   // Pre-load the professional PDF generation library so it's ready instantly
   useEffect(() => {
@@ -219,11 +219,10 @@ export default function App() {
   };
 
   const exportToPDF = () => {
-    // Force absolute top to prevent html2canvas offset miscalculations
     window.scrollTo(0, 0);
     setIsGeneratingPDF(true);
     
-    // FIX 2: Find and delete any leftover PDF engine page-breaks from previous generations
+    // Clean up invisible html2pdf page break markers leftover from previous prints
     const staleBreaks = document.querySelectorAll('.html2pdf__page-break');
     staleBreaks.forEach(b => b.remove());
 
@@ -237,12 +236,12 @@ export default function App() {
       const opt = {
         margin:       15, 
         filename:     `Victor_Inspection_${new Date().toLocaleDateString().replace(/\//g, '-')}.pdf`,
-        image:        { type: 'jpeg', quality: 0.95 }, // Dropped quality slightly to save memory during generation
+        image:        { type: 'jpeg', quality: 0.98 },
         html2canvas:  { 
           scale: 2, 
           useCORS: true, 
-          scrollY: 0,
-          windowWidth: 800 // Hard locks the virtual width so it never cuts off the right side
+          scrollY: 0, 
+          windowWidth: 800 
         },
         jsPDF:        { unit: 'mm', format: 'letter', orientation: 'portrait' },
         pagebreak:    { mode: ['css', 'legacy'], before: '.print-page-break', avoid: '.page-break-inside-avoid' } 
@@ -252,16 +251,13 @@ export default function App() {
         // @ts-ignore
         window.html2pdf().set(opt).from(element).save().then(() => {
           setIsGeneratingPDF(false); 
-          setRefreshKey(k => k + 1); // FIX 3: Forces Safari to redraw all images upon returning to the app
         }).catch((err: any) => {
           console.error("PDF generation failed:", err);
           setIsGeneratingPDF(false);
-          setRefreshKey(k => k + 1);
           alert("Something went wrong while generating the PDF.");
         });
       } catch (err) {
         setIsGeneratingPDF(false);
-        setRefreshKey(k => k + 1);
         alert("PDF engine is still loading. Please try again in a few seconds.");
       }
     }, 500); 
@@ -270,9 +266,24 @@ export default function App() {
   return (
     <div className="min-h-screen bg-gray-50 pb-20 font-sans">
       
-      {/* Full-Screen Loading Overlay */}
+      {/* Full-Screen Photo Viewer (Lightbox) */}
+      {viewingPhoto && (
+        <div className="fixed inset-0 bg-black/95 z-[99999] flex flex-col items-center justify-center p-4">
+          <div className="w-full max-w-md flex justify-end mb-4">
+            <button 
+              onClick={() => setViewingPhoto(null)}
+              className="flex items-center text-white bg-white/20 px-4 py-2 rounded-full font-bold hover:bg-white/30 transition active:bg-white/40"
+            >
+              <X size={20} className="mr-1" /> Close
+            </button>
+          </div>
+          <img src={viewingPhoto} className="max-w-full max-h-[80vh] object-contain rounded-lg" alt="Full screen preview" />
+        </div>
+      )}
+
+      {/* Floating Loading Overlay */}
       {isGeneratingPDF && (
-        <div className="fixed inset-0 bg-white z-[9999] flex flex-col items-center justify-center">
+        <div className="fixed inset-0 bg-white/95 z-[9999] flex flex-col items-center justify-center">
           <div className="w-16 h-16 border-8 border-gray-100 border-t-[#00843D] rounded-full animate-spin mb-6"></div>
           <h2 className="text-3xl font-black text-[#00843D] mb-2">Generating PDF</h2>
           <p className="text-gray-600 font-medium text-lg">Formatting your report...</p>
@@ -312,10 +323,12 @@ export default function App() {
         </header>
       )}
 
-      {/* Main Content Area - Expands to 800px width for the PDF generator */}
+      {/* Main Content Area */}
       <main 
         id="pdf-content" 
-        className={`mx-auto ${isGeneratingPDF ? 'w-[800px] bg-white text-black px-8 py-4' : 'max-w-md p-4'}`}
+        // DOM RESET: This key forces React to redraw the entire DOM when generating the PDF, purging stale canvas math
+        key={isGeneratingPDF ? 'pdf' : 'mobile'} 
+        className={isGeneratingPDF ? 'w-[800px] bg-white text-black px-10 py-8 min-h-screen' : 'max-w-md mx-auto p-4'}
       >
         {stations.map((station, index) => (
           <div 
@@ -332,7 +345,6 @@ export default function App() {
               <img src={VICTOR_LOGO} alt="Victor Logo" className="h-20 w-20 object-contain" />
             </div>
 
-            {/* Station Title */}
             <h2 className={`font-bold px-4 bg-gray-100 border-[#FFD100] text-gray-900 ${isGeneratingPDF ? 'text-3xl mb-6 py-3 border-l-8 block' : 'hidden'}`}>
               {station.name}
             </h2>
@@ -378,7 +390,6 @@ export default function App() {
                     </div>
                   )}
 
-                  {/* Comments Box (Mobile) OR Expanding Paragraph (PDF) */}
                   <div className={`flex gap-2 ${isGeneratingPDF ? 'block mt-2 w-full overflow-hidden' : ''}`}>
                     
                     {!isGeneratingPDF ? (
@@ -416,17 +427,36 @@ export default function App() {
                     )}
                   </div>
 
-                  {/* Photo Preview */}
-                  {field.photoUrl && (
-                    <div className={`mt-3 relative rounded-lg overflow-hidden border border-gray-200 page-break-inside-avoid ${isGeneratingPDF ? 'mt-4 border-none flex justify-start' : ''}`}>
+                  {/* 
+                      PHOTO DISPLAY LOGIC 
+                      Mobile View: Shows a small green button to open the Lightbox
+                      PDF View: Shows the massive expanded image for printing
+                  */}
+                  {field.photoUrl && !isGeneratingPDF && (
+                    <div className="mt-3 flex items-center justify-between p-3 bg-green-50 border border-green-200 rounded-lg">
+                      <div className="flex items-center text-[#00843D]">
+                        <ImageIcon size={20} className="mr-2" />
+                        <span className="text-sm font-semibold">Photo Attached</span>
+                      </div>
+                      <button
+                        onClick={() => setViewingPhoto(field.photoUrl)}
+                        className="text-sm font-bold bg-[#00843D] text-white px-4 py-2 rounded-md hover:bg-[#006A31] transition active:scale-95"
+                      >
+                        View Photo
+                      </button>
+                    </div>
+                  )}
+
+                  {field.photoUrl && isGeneratingPDF && (
+                    <div className="mt-4 border-none flex justify-start page-break-inside-avoid">
                       <img 
-                        key={refreshKey} // FIX: Safari reload hook to prevent grey placeholders
                         src={field.photoUrl} 
                         alt="Inspection" 
-                        className={`w-full object-cover page-break-inside-avoid ${isGeneratingPDF ? 'max-h-80 w-auto rounded-xl border border-gray-300' : 'h-32'}`} 
+                        className="max-h-80 w-auto rounded-xl border border-gray-300 page-break-inside-avoid" 
                       />
                     </div>
                   )}
+
                 </div>
               ))}
             </div>
@@ -434,7 +464,6 @@ export default function App() {
         ))}
       </main>
 
-      {/* Bottom Navigation */}
       {!isGeneratingPDF && (
         <footer className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 p-4 pb-safe shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
           <div className="max-w-md mx-auto flex items-center justify-between">
@@ -469,7 +498,7 @@ export default function App() {
         </footer>
       )}
 
-      {/* Simple Page Break Logic */}
+      {/* Safety CSS for PDF engine */}
       <style dangerouslySetInnerHTML={{__html: `
         .page-break-inside-avoid {
           page-break-inside: avoid !important;
@@ -479,3 +508,5 @@ export default function App() {
     </div>
   );
 }
+
+  

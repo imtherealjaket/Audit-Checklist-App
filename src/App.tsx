@@ -1,4 +1,4 @@
-// VERSION 7
+// VERSION 8 - The "Clone Engine" Fix
 import { useState, useEffect } from 'react';
 import type { ChangeEvent } from 'react';
 import { Camera, Plus, FileDown, ChevronLeft, ChevronRight, CheckCircle2, AlertTriangle, Image as ImageIcon, Trash2, Pencil } from 'lucide-react';
@@ -217,39 +217,54 @@ export default function App() {
   };
 
   const exportToPDF = () => {
-    // Scroll to the absolute top of the page before generating the PDF.
-    // This prevents html2canvas from miscalculating the height of elements 
-    // on subsequent prints if the user has scrolled down the page.
     window.scrollTo(0, 0);
     setIsGeneratingPDF(true);
     
-    // Give the browser 500ms to fully paint the new expanded layout and text nodes before taking the snapshot
+    // Give the browser 500ms to paint the new desktop layout behind the loading screen
     setTimeout(() => {
-      const element = document.getElementById('pdf-content');
-      if (!element) {
+      const originalElement = document.getElementById('pdf-content');
+      if (!originalElement) {
         setIsGeneratingPDF(false);
         return;
       }
       
+      // CREATE THE CLONE: We copy the entire document tree so html2pdf can safely mutate 
+      // the clone's math/spacing without permanently corrupting your live app layout.
+      const clonedElement = originalElement.cloneNode(true) as HTMLElement;
+      clonedElement.id = 'pdf-content-clone';
+      clonedElement.style.position = 'absolute';
+      clonedElement.style.top = '0';
+      clonedElement.style.left = '0';
+      clonedElement.style.zIndex = '-9999'; // Hide it behind the full-screen loading overlay
+      
+      // Attach clone to DOM so html2canvas can read its styles
+      originalElement.parentNode?.appendChild(clonedElement);
+      
       const opt = {
-        margin:       10, 
+        margin:       10, // Millimeters of pure margin
         filename:     `Victor_Inspection_${new Date().toLocaleDateString().replace(/\//g, '-')}.pdf`,
         image:        { type: 'jpeg', quality: 0.98 },
-        html2canvas:  { scale: 2, useCORS: true, scrollY: 0 }, // scrollY: 0 locks the math
+        html2canvas:  { scale: 2, useCORS: true, scrollY: 0 },
         jsPDF:        { unit: 'mm', format: 'letter', orientation: 'portrait' },
         pagebreak:    { mode: ['css', 'legacy'], before: '.print-page-break', avoid: '.page-break-inside-avoid' } 
       };
       
       try {
         // @ts-ignore
-        window.html2pdf().set(opt).from(element).save().then(() => {
-          setIsGeneratingPDF(false); // Return back to mobile app view
+        window.html2pdf().set(opt).from(clonedElement).save().then(() => {
+          // TRASH THE CLONE: Wipe the mutated DOM node from memory
+          if (clonedElement.parentNode) {
+            clonedElement.parentNode.removeChild(clonedElement);
+          }
+          setIsGeneratingPDF(false); // Return app to mobile view
         }).catch((err: any) => {
           console.error("PDF generation failed:", err);
+          if (clonedElement.parentNode) clonedElement.parentNode.removeChild(clonedElement);
           setIsGeneratingPDF(false);
           alert("Something went wrong while generating the PDF.");
         });
       } catch (err) {
+        if (clonedElement.parentNode) clonedElement.parentNode.removeChild(clonedElement);
         setIsGeneratingPDF(false);
         alert("PDF engine is still loading. Please try again in a few seconds.");
       }
@@ -321,7 +336,7 @@ export default function App() {
               <img src={VICTOR_LOGO} alt="Victor Logo" className="h-20 w-20 object-contain" />
             </div>
 
-            {/* Station Title */}
+            {/* Station Title - Hardcoded text-gray-900 so it can't accidentally turn white */}
             <h2 className={`font-bold px-4 bg-gray-100 border-[#FFD100] text-gray-900 ${isGeneratingPDF ? 'text-3xl mb-6 py-3 border-l-8 block' : 'hidden'}`}>
               {station.name}
             </h2>
@@ -381,7 +396,7 @@ export default function App() {
                       />
                     ) : (
                       field.comments && (
-                        <div className="mt-2 text-gray-700 bg-gray-50 p-4 rounded-lg border border-gray-100 whitespace-pre-wrap text-base break-words w-full">
+                        <div className="mt-2 text-gray-700 bg-gray-50 p-4 rounded-lg border border-gray-100 whitespace-pre-wrap text-base">
                           <strong>Comments: </strong>{field.comments}
                         </div>
                       )
@@ -457,7 +472,7 @@ export default function App() {
         </footer>
       )}
 
-      {/* Safety CSS for PDF engine */}
+      {/* The simple, proven CSS rules for html2pdf page breaks */}
       <style dangerouslySetInnerHTML={{__html: `
         .page-break-inside-avoid {
           page-break-inside: avoid !important;

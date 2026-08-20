@@ -218,18 +218,22 @@ export default function App() {
   const exportToPDF = () => {
     setIsGeneratingPDF(true);
     
-    // Give React a tiny fraction of a second to restructure the DOM into a desktop layout
+    // Give the browser 500ms to fully paint the new expanded layout and text nodes before taking the snapshot
     setTimeout(() => {
       const element = document.getElementById('pdf-content');
-      if (!element) return;
+      if (!element) {
+        setIsGeneratingPDF(false);
+        return;
+      }
       
       const opt = {
-        margin:       10, // Millimeters of pure margin (no iOS Safari junk)
+        margin:       10, // Millimeters of pure margin
         filename:     `Victor_Inspection_${new Date().toLocaleDateString().replace(/\//g, '-')}.pdf`,
         image:        { type: 'jpeg', quality: 0.98 },
         html2canvas:  { scale: 2, useCORS: true },
         jsPDF:        { unit: 'mm', format: 'letter', orientation: 'portrait' },
-        pagebreak:    { mode: 'css', before: '.print-page-break' } // Uses our custom class to break pages cleanly
+        // Enforce page break logic: split before .print-page-break, but NEVER split inside .page-break-inside-avoid
+        pagebreak:    { mode: ['css', 'legacy'], before: '.print-page-break', avoid: '.page-break-inside-avoid' } 
       };
       
       try {
@@ -245,7 +249,7 @@ export default function App() {
         setIsGeneratingPDF(false);
         alert("PDF engine is still loading. Please try again in a few seconds.");
       }
-    }, 150);
+    }, 500); 
   };
 
   return (
@@ -304,29 +308,27 @@ export default function App() {
             className={`${index === currentIndex || isGeneratingPDF ? 'block' : 'hidden'} ${index > 0 && isGeneratingPDF ? 'print-page-break pt-8' : ''}`}
           >
             
-            {/* Custom High-Res PDF Header */}
-            {isGeneratingPDF && (
-              <div className="flex p-4 border-b-4 border-[#00843D] mb-8 items-center justify-between">
-                <div>
-                  <h1 className="text-4xl font-black text-[#00843D]">Inspection Report</h1>
-                  <p className="text-gray-600 font-medium mt-2 text-lg">Generated on: {new Date().toLocaleDateString()}</p>
-                </div>
-                <img src={VICTOR_LOGO} alt="Victor Logo" className="h-20 w-20 object-contain" />
+            {/* Custom High-Res PDF Header (Always remains mounted to prevent missing text bugs) */}
+            <div className={`p-4 border-b-4 border-[#00843D] mb-8 items-center justify-between ${isGeneratingPDF ? 'flex' : 'hidden'}`}>
+              <div>
+                <h1 className="text-4xl font-black text-[#00843D]">Inspection Report</h1>
+                <p className="text-gray-600 font-medium mt-2 text-lg">Generated on: {new Date().toLocaleDateString()}</p>
               </div>
-            )}
+              <img src={VICTOR_LOGO} alt="Victor Logo" className="h-20 w-20 object-contain" />
+            </div>
 
-            {/* Station Title */}
-            {isGeneratingPDF ? (
-              <h2 className="text-3xl font-bold mb-6 px-4 bg-gray-100 py-3 border-l-8 border-[#FFD100]">
-                {station.name}
-              </h2>
-            ) : (
-              <h2 className="hidden">Hidden</h2> // Keeps DOM simple
-            )}
+            {/* Station Title - Hardcoded text-gray-900 so it can't accidentally turn white */}
+            <h2 className={`font-bold px-4 bg-gray-100 border-[#FFD100] text-gray-900 ${isGeneratingPDF ? 'text-3xl mb-6 py-3 border-l-8 block' : 'hidden'}`}>
+              {station.name}
+            </h2>
 
             <div className="space-y-4">
               {station.fields.map((field) => (
-                <div key={field.id} className={`bg-white ${isGeneratingPDF ? 'border-b-2 border-gray-200 pb-6 mb-6' : 'p-4 rounded-xl shadow-sm border border-gray-100'}`}>
+                <div 
+                  key={field.id} 
+                  // CRITICAL: Added back page-break-inside-avoid so html2pdf knows not to chop this element in half
+                  className={`bg-white page-break-inside-avoid ${isGeneratingPDF ? 'border-b-2 border-gray-200 pb-6 mb-6' : 'p-4 rounded-xl shadow-sm border border-gray-100'}`}
+                >
                   
                   <h3 className={`font-semibold text-gray-800 mb-3 ${isGeneratingPDF ? 'text-xl' : 'text-base'}`}>{field.name}</h3>
                   
@@ -451,7 +453,6 @@ export default function App() {
           </div>
         </footer>
       )}
-
     </div>
   );
 }

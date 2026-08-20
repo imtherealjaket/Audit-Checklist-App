@@ -126,7 +126,6 @@ export default function App() {
   const [isLoaded, setIsLoaded] = useState(false);
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
 
-  // Pre-load the professional PDF generation library
   useEffect(() => {
     if (!document.getElementById('html2pdf-script')) {
       const script = document.createElement('script');
@@ -230,7 +229,11 @@ export default function App() {
         html2canvas:  { 
           scale: 2, 
           useCORS: true, 
-          windowWidth: 800 // Locks the virtual capture window size to prevent right-edge clipping
+          windowWidth: 800, // Explicitly lock the virtual capture width
+          x: 0,             // Force the snapshot to start at X: 0
+          y: 0,             // Force the snapshot to start at Y: 0
+          scrollX: 0,       // Ignore mobile scrolling
+          scrollY: 0
         },
         jsPDF:        { unit: 'mm', format: 'letter', orientation: 'portrait' },
         pagebreak:    { mode: ['css', 'legacy'], before: '.print-page-break', avoid: '.page-break-inside-avoid' } 
@@ -255,8 +258,9 @@ export default function App() {
   return (
     <div className="min-h-screen bg-gray-50 pb-20 font-sans">
       
+      {/* High z-index loading screen hides the document reshaping */}
       {isGeneratingPDF && (
-        <div className="fixed inset-0 bg-white z-[9999] flex flex-col items-center justify-center">
+        <div className="fixed inset-0 bg-white z-[999999] flex flex-col items-center justify-center">
           <div className="w-16 h-16 border-8 border-gray-100 border-t-[#00843D] rounded-full animate-spin mb-6"></div>
           <h2 className="text-3xl font-black text-[#00843D] mb-2">Generating PDF</h2>
           <p className="text-gray-600 font-medium text-lg">Formatting your report...</p>
@@ -295,10 +299,11 @@ export default function App() {
         </header>
       )}
 
-      {/* Main Content Area - Expands to exactly 800px width with extra side padding to stop cutoff */}
+      {/* Main Content Area */}
+      {/* EXTREMELY IMPORTANT: During generation, we use 'absolute top-0 left-0 m-0' instead of 'mx-auto' to lock it to coordinate 0,0 and prevent offset rendering bugs */}
       <main 
         id="pdf-content" 
-        className={`mx-auto ${isGeneratingPDF ? 'w-[800px] bg-white text-black px-10 py-4' : 'max-w-md p-4'}`}
+        className={isGeneratingPDF ? 'w-[800px] bg-white text-black px-10 py-4 m-0 absolute top-0 left-0 z-10' : 'max-w-md mx-auto p-4'}
       >
         {stations.map((station, index) => (
           <div 
@@ -306,14 +311,15 @@ export default function App() {
             className={`${index === currentIndex || isGeneratingPDF ? 'block' : 'hidden'} ${index > 0 && isGeneratingPDF ? 'print-page-break pt-8' : ''}`}
           >
             
-            {/* Custom High-Res PDF Header */}
-            <div className={`p-4 border-b-4 border-[#00843D] mb-8 items-center justify-between ${isGeneratingPDF ? 'flex' : 'hidden'}`}>
-              <div>
-                <h1 className="text-4xl font-black text-[#00843D]">Inspection Report</h1>
-                <p className="text-gray-600 font-medium mt-2 text-lg">Generated on: {new Date().toLocaleDateString()}</p>
+            {isGeneratingPDF && (
+              <div className="flex p-4 border-b-4 border-[#00843D] mb-8 items-center justify-between">
+                <div>
+                  <h1 className="text-4xl font-black text-[#00843D]">Inspection Report</h1>
+                  <p className="text-gray-600 font-medium mt-2 text-lg">Generated on: {new Date().toLocaleDateString()}</p>
+                </div>
+                <img src={VICTOR_LOGO} alt="Victor Logo" className="h-20 w-20 object-contain" />
               </div>
-              <img src={VICTOR_LOGO} alt="Victor Logo" className="h-20 w-20 object-contain" />
-            </div>
+            )}
 
             <h2 className={`font-bold px-4 bg-gray-100 border-[#FFD100] text-gray-900 ${isGeneratingPDF ? 'text-3xl mb-6 py-3 border-l-8 block' : 'hidden'}`}>
               {station.name}
@@ -359,7 +365,7 @@ export default function App() {
                     </div>
                   )}
 
-                  <div className={`flex gap-2 ${isGeneratingPDF ? 'block mt-2' : ''}`}>
+                  <div className={`flex gap-2 ${isGeneratingPDF ? 'block mt-2 w-full overflow-hidden' : ''}`}>
                     
                     {!isGeneratingPDF ? (
                       <textarea
@@ -372,8 +378,8 @@ export default function App() {
                       />
                     ) : (
                       field.comments && (
-                        // break-words and extra padding explicitly prevents text cutoff at the edge
-                        <div className="mt-2 text-gray-700 bg-gray-50 py-4 px-5 rounded-lg border border-gray-100 whitespace-pre-wrap text-base break-words">
+                        // Added 'overflow-hidden' and 'w-full' to prevent string breaking bounds
+                        <div className="mt-2 text-gray-700 bg-gray-50 py-4 px-5 rounded-lg border border-gray-100 whitespace-pre-wrap text-base break-words w-full overflow-hidden">
                           <strong>Comments: </strong>{field.comments}
                         </div>
                       )

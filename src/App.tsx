@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import type { ChangeEvent } from 'react';
-import { Camera, Plus, FileDown, ChevronLeft, ChevronRight, CheckCircle2, AlertTriangle, Image as ImageIcon, Trash2 } from 'lucide-react';
+import { Camera, Plus, FileDown, ChevronLeft, ChevronRight, CheckCircle2, AlertTriangle, Image as ImageIcon, Trash2, Pencil } from 'lucide-react';
 
 const VICTOR_LOGO = "/IMG_0310.jpeg";
 
@@ -174,6 +174,15 @@ export default function App() {
     }
   };
 
+  const handleRenameStation = (stationId: number, currentName: string) => {
+    const newName = window.prompt('Edit station name:', currentName);
+    if (newName !== null && newName.trim() !== '') {
+      setStations(prevStations => prevStations.map(st => 
+        st.id === stationId ? { ...st, name: newName.trim() } : st
+      ));
+    }
+  };
+
   const resetApp = async () => {
     const confirmReset = window.confirm("Are you sure you want to delete all saved data and start a new report? This cannot be undone.");
     if (confirmReset) {
@@ -218,11 +227,17 @@ export default function App() {
       {/* Header - Victor Dark Green */}
       <header className="bg-[#00843D] text-white p-4 shadow-md sticky top-0 z-10 print:hidden">
         <div className="flex justify-between items-center max-w-md mx-auto">
-          <div className="flex items-center space-x-3 overflow-hidden">
-            <img src={VICTOR_LOGO} alt="Victor Logo" className="h-8 w-8 rounded-full bg-white object-cover border-2 border-[#FFD100]" />
+          {/* Clickable area to rename the station */}
+          <div 
+            className="flex items-center space-x-2 overflow-hidden cursor-pointer active:opacity-70 transition-opacity"
+            onClick={() => handleRenameStation(currentStation.id, currentStation.name)}
+            title="Tap to rename station"
+          >
+            <img src={VICTOR_LOGO} alt="Victor Logo" className="h-8 w-8 flex-shrink-0 rounded-full bg-white object-cover border-2 border-[#FFD100]" />
             <h1 className="text-xl font-bold truncate text-white">{currentStation?.name || 'Inspection'}</h1>
+            <Pencil size={16} className="text-[#FFD100] flex-shrink-0" />
           </div>
-          <div className="flex items-center space-x-2">
+          <div className="flex items-center space-x-2 ml-2 flex-shrink-0">
             <button 
               onClick={resetApp}
               className="p-2 bg-[#006A31] rounded-full hover:bg-red-600 transition text-[#FFD100] hover:text-white"

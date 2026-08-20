@@ -2,8 +2,6 @@ import { useState, useEffect } from 'react';
 import type { ChangeEvent } from 'react';
 import { Camera, Plus, FileDown, ChevronLeft, ChevronRight, CheckCircle2, AlertTriangle, Image as ImageIcon, Trash2 } from 'lucide-react';
 
-// Using standard image reference instead of base64 to ensure it loads perfectly.
-// Because IMG_0310.jpeg is in the `public` folder, we can just reference it from the root.
 const VICTOR_LOGO = "/IMG_0310.jpeg";
 
 const excelRows = [
@@ -40,6 +38,58 @@ const defaultChecklist: Field[] = excelRows.map((name, index) => ({
   comments: '',
   photoUrl: null
 }));
+
+// --- INDEXED DB SETUP ---
+// This upgrades storage from 5MB to ~1GB, allowing thousands of photos.
+const DB_NAME = 'VictorInspectionsDB';
+const STORE_NAME = 'stationsStore';
+const DB_VERSION = 1;
+
+const initDB = (): Promise<IDBDatabase> => {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(DB_NAME, DB_VERSION);
+    request.onerror = () => reject(request.error);
+    request.onsuccess = () => resolve(request.result);
+    request.onupgradeneeded = (event) => {
+      const db = (event.target as IDBOpenDBRequest).result;
+      if (!db.objectStoreNames.contains(STORE_NAME)) {
+        db.createObjectStore(STORE_NAME);
+      }
+    };
+  });
+};
+
+const saveToDB = async (key: string, data: any) => {
+  try {
+    const db = await initDB();
+    return new Promise<void>((resolve, reject) => {
+      const transaction = db.transaction(STORE_NAME, 'readwrite');
+      const store = transaction.objectStore(STORE_NAME);
+      const request = store.put(data, key);
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+    });
+  } catch (error) {
+    console.error("Failed to save to database", error);
+  }
+};
+
+const loadFromDB = async (key: string) => {
+  try {
+    const db = await initDB();
+    return new Promise<any>((resolve, reject) => {
+      const transaction = db.transaction(STORE_NAME, 'readonly');
+      const store = transaction.objectStore(STORE_NAME);
+      const request = store.get(key);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+  } catch (error) {
+    console.error("Failed to load from database", error);
+    return null;
+  }
+};
+// ------------------------
 
 // A helper function to compress large iPhone images down to a saveable size
 const compressImage = (file: File): Promise<string> => {
@@ -81,25 +131,35 @@ const compressImage = (file: File): Promise<string> => {
 };
 
 export default function App() {
-  // Load data from Local Storage when the app opens, or use defaults
-  const [stations, setStations] = useState<Station[]>(() => {
-    const savedData = localStorage.getItem('victor-inspections-data');
-    if (savedData) {
-      try {
-        return JSON.parse(savedData);
-      } catch (e) {
-        console.error("Failed to parse saved app data.");
-      }
-    }
-    return [{ id: Date.now(), name: 'Station 1', fields: JSON.parse(JSON.stringify(defaultChecklist)) }];
-  });
-  
+  const [stations, setStations] = useState<Station[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
+  const [isLoaded, setIsLoaded] = useState(false);
 
-  // Automatically save to Local Storage every time a change is made
+  // Load data from IndexedDB when the app opens
   useEffect(() => {
-    localStorage.setItem('victor-inspections-data', JSON.stringify(stations));
-  }, [stations]);
+    const loadData = async () => {
+      const savedData = await loadFromDB('stations-data');
+      if (savedData && savedData.length > 0) {
+        setStations(savedData);
+      } else {
+        setStations([{ id: Date.now(), name: 'Station 1', fields: JSON.parse(JSON.stringify(defaultChecklist)) }]);
+      }
+      setIsLoaded(true);
+    };
+    loadData();
+  }, []);
+
+  // Automatically save to IndexedDB every time a change is made
+  useEffect(() => {
+    if (isLoaded) {
+      saveToDB('stations-data', stations);
+    }
+  }, [stations, isLoaded]);
+
+  // Show a blank/loading screen until the DB connects
+  if (!isLoaded) {
+    return <div className="min-h-screen bg-gray-50 flex items-center justify-center font-bold text-gray-500">Loading App...</div>;
+  }
 
   const currentStation = stations[currentIndex];
 
@@ -114,11 +174,12 @@ export default function App() {
     }
   };
 
-  const resetApp = () => {
+  const resetApp = async () => {
     const confirmReset = window.confirm("Are you sure you want to delete all saved data and start a new report? This cannot be undone.");
     if (confirmReset) {
-      localStorage.removeItem('victor-inspections-data');
-      setStations([{ id: Date.now(), name: 'Station 1', fields: JSON.parse(JSON.stringify(defaultChecklist)) }]);
+      const freshStart = [{ id: Date.now(), name: 'Station 1', fields: JSON.parse(JSON.stringify(defaultChecklist)) }];
+      await saveToDB('stations-data', freshStart);
+      setStations(freshStart);
       setCurrentIndex(0);
     }
   };
@@ -139,7 +200,6 @@ export default function App() {
     const file = event.target.files?.[0];
     if (file) {
       try {
-        // Compress the image before saving it so we don't crash the browser storage
         const compressedBase64 = await compressImage(file);
         updateField(stationId, fieldId, 'photoUrl', compressedBase64);
       } catch (error) {
@@ -160,7 +220,7 @@ export default function App() {
         <div className="flex justify-between items-center max-w-md mx-auto">
           <div className="flex items-center space-x-3 overflow-hidden">
             <img src={VICTOR_LOGO} alt="Victor Logo" className="h-8 w-8 rounded-full bg-white object-cover border-2 border-[#FFD100]" />
-            <h1 className="text-xl font-bold truncate text-white">{currentStation.name}</h1>
+            <h1 className="text-xl font-bold truncate text-white">{currentStation?.name || 'Inspection'}</h1>
           </div>
           <div className="flex items-center space-x-2">
             <button 
@@ -186,11 +246,10 @@ export default function App() {
         {stations.map((station, index) => (
           <div 
             key={station.id} 
-            // On screen: Only show if it's the current station. On print: Show all of them, and break page if it isn't the first one.
             className={`${index === currentIndex ? 'block' : 'hidden print:block'} ${index > 0 ? 'print-page-break' : ''}`}
           >
             
-            {/* Print-only PDF Header - Added inside the loop so every station/page gets a nice header */}
+            {/* Print-only PDF Header */}
             <div className="hidden print:flex p-4 border-b-4 border-[#00843D] mb-6 items-center justify-between">
               <div>
                 <h1 className="text-3xl font-black text-[#00843D]">Inspection Report</h1>
@@ -243,16 +302,15 @@ export default function App() {
                   {/* Comments & Photo Row */}
                   <div className="flex gap-2 print:block">
                     <textarea
-                      // bg-white and text-gray-900 force the box to remain light-mode even if the phone is in dark mode
                       className="flex-1 bg-white text-gray-900 placeholder-gray-400 border border-gray-200 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#00843D] focus:border-[#00843D] focus:outline-none resize-none print:border-none print:p-0 print:text-gray-600 print:bg-transparent"
                       rows={2}
-                      maxLength={200} // Limits input so the PDF layout doesn't break
+                      maxLength={200}
                       placeholder="Additional comments..."
                       value={field.comments}
                       onChange={(e) => updateField(station.id, field.id, 'comments', e.target.value)}
                     />
                     
-                    {/* Photo Upload Button - Hidden on Print */}
+                    {/* Photo Upload Button */}
                     <div className="relative print:hidden flex-shrink-0 w-20">
                       <input
                         type="file"

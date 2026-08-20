@@ -1,4 +1,4 @@
-// VERSION 9
+// VERSION 10
 import { useState, useEffect } from 'react';
 import type { ChangeEvent } from 'react';
 import { Camera, Plus, FileDown, ChevronLeft, ChevronRight, CheckCircle2, AlertTriangle, Image as ImageIcon, Trash2, Pencil } from 'lucide-react';
@@ -217,15 +217,10 @@ export default function App() {
   };
 
   const exportToPDF = () => {
-    // 1. Force the page to the absolute top to prevent html2canvas offset miscalculations
     window.scrollTo(0, 0);
     setIsGeneratingPDF(true);
     
-    // 2. CRITICAL FIX: Clean up any invisible html2pdf page break markers leftover from previous prints
-    const staleBreaks = document.querySelectorAll('.html2pdf__page-break');
-    staleBreaks.forEach(b => b.remove());
-
-    // Give the browser 500ms to fully paint the new expanded layout and text nodes before taking the snapshot
+    // Give the browser 500ms to mount the brand-new PDF DOM before snapping it
     setTimeout(() => {
       const element = document.getElementById('pdf-content');
       if (!element) {
@@ -234,24 +229,18 @@ export default function App() {
       }
       
       const opt = {
-        margin:       15, // Millimeters of pure margin for perfect centering
+        margin:       10, 
         filename:     `Victor_Inspection_${new Date().toLocaleDateString().replace(/\//g, '-')}.pdf`,
         image:        { type: 'jpeg', quality: 0.98 },
-        html2canvas:  { 
-          scale: 2, 
-          useCORS: true, 
-          scrollY: 0, 
-          windowWidth: 800 // Explicitly locks the width so right-side text is never clipped
-        },
+        html2canvas:  { scale: 2, useCORS: true, scrollY: 0 },
         jsPDF:        { unit: 'mm', format: 'letter', orientation: 'portrait' },
-        // Enforce page break logic: split before .print-page-break, but NEVER split inside .page-break-inside-avoid
         pagebreak:    { mode: ['css', 'legacy'], before: '.print-page-break', avoid: '.page-break-inside-avoid' } 
       };
       
       try {
         // @ts-ignore
         window.html2pdf().set(opt).from(element).save().then(() => {
-          setIsGeneratingPDF(false); // Return back to mobile app view
+          setIsGeneratingPDF(false); // Destroys the PDF DOM and brings back Mobile UI
         }).catch((err: any) => {
           console.error("PDF generation failed:", err);
           setIsGeneratingPDF(false);
@@ -267,16 +256,16 @@ export default function App() {
   return (
     <div className="min-h-screen bg-gray-50 pb-20 font-sans">
       
-      {/* Floating Loading Overlay - Does NOT use 'fixed inset-0 bg-white' to prevent the blank page bug */}
+      {/* V7 Solid White Loading Screen - completely covers background shifts */}
       {isGeneratingPDF && (
-        <div className="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-white/95 backdrop-blur-sm p-8 rounded-2xl shadow-2xl z-[9999] flex flex-col items-center justify-center border-2 border-[#00843D]">
+        <div className="fixed inset-0 bg-white z-[9999] flex flex-col items-center justify-center">
           <div className="w-16 h-16 border-8 border-gray-100 border-t-[#00843D] rounded-full animate-spin mb-6"></div>
           <h2 className="text-3xl font-black text-[#00843D] mb-2">Generating PDF</h2>
-          <p className="text-gray-600 font-medium text-center">Formatting your report...</p>
+          <p className="text-gray-600 font-medium text-lg">Formatting your report...</p>
         </div>
       )}
 
-      {/* Top Header - Hidden during PDF build */}
+      {/* Top Header */}
       {!isGeneratingPDF && (
         <header className="bg-[#00843D] text-white p-4 shadow-md sticky top-0 z-10">
           <div className="flex justify-between items-center max-w-md mx-auto">
@@ -309,45 +298,67 @@ export default function App() {
         </header>
       )}
 
-      {/* 
-        Main Content Area 
-        CRITICAL FIX: Removes mx-auto during generation to stop left margin issues, but keeps the element in the document flow (no absolute) to stop the blank white page bug.
-      */}
-      <main 
-        id="pdf-content" 
-        className={isGeneratingPDF ? 'w-[800px] bg-white text-black px-10 py-8 min-h-screen' : 'max-w-md mx-auto p-4'}
-      >
-        {stations.map((station, index) => (
-          <div 
-            key={station.id} 
-            className={`${index === currentIndex || isGeneratingPDF ? 'block' : 'hidden'} ${index > 0 && isGeneratingPDF ? 'print-page-break pt-8' : ''}`}
-          >
-            
-            {/* Custom High-Res PDF Header */}
-            <div className={`p-4 border-b-4 border-[#00843D] mb-8 items-center justify-between ${isGeneratingPDF ? 'flex' : 'hidden'}`}>
-              <div>
-                <h1 className="text-4xl font-black text-[#00843D]">Inspection Report</h1>
-                <p className="text-gray-600 font-medium mt-2 text-lg">Generated on: {new Date().toLocaleDateString()}</p>
+      {/* ========================================= */}
+      {/* 1. THE PDF DOM (Only exists during generation) */}
+      {/* ========================================= */}
+      {isGeneratingPDF && (
+        <main id="pdf-content" className="mx-auto w-[800px] bg-white text-black px-8 py-4">
+          {stations.map((station, index) => (
+            <div key={station.id} className={`block ${index > 0 ? 'print-page-break pt-8' : ''}`}>
+              
+              <div className="flex p-4 border-b-4 border-[#00843D] mb-8 items-center justify-between">
+                <div>
+                  <h1 className="text-4xl font-black text-[#00843D]">Inspection Report</h1>
+                  <p className="text-gray-600 font-medium mt-2 text-lg">Generated on: {new Date().toLocaleDateString()}</p>
+                </div>
+                <img src={VICTOR_LOGO} alt="Victor Logo" className="h-20 w-20 object-contain" />
               </div>
-              <img src={VICTOR_LOGO} alt="Victor Logo" className="h-20 w-20 object-contain" />
+
+              <h2 className="font-bold px-4 bg-gray-100 border-[#FFD100] text-gray-900 text-3xl mb-6 py-3 border-l-8 block">
+                {station.name}
+              </h2>
+
+              <div className="space-y-4">
+                {station.fields.map((field) => (
+                  <div key={field.id} className="bg-white page-break-inside-avoid border-b-2 border-gray-200 pb-6 mb-6">
+                    <h3 className="font-semibold text-gray-800 mb-3 text-xl">{field.name}</h3>
+                    
+                    <div className="mb-2 text-lg">
+                      Status: <strong className={field.status === 'Replace' ? 'text-red-600 font-bold' : field.status === 'OK' ? 'text-[#00843D] font-bold' : 'text-gray-500'}>{field.status || 'Not Evaluated'}</strong>
+                    </div>
+
+                    {field.comments && (
+                      <div className="mt-2 text-gray-700 bg-gray-50 p-4 rounded-lg border border-gray-100 whitespace-pre-wrap text-base break-words w-full">
+                        <strong>Comments: </strong>{field.comments}
+                      </div>
+                    )}
+                    
+                    {field.photoUrl && (
+                      <div className="mt-4 border-none flex justify-start page-break-inside-avoid">
+                        <img src={field.photoUrl} alt="Inspection" className="max-h-80 w-auto rounded-xl border border-gray-300 page-break-inside-avoid" />
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
             </div>
+          ))}
+        </main>
+      )}
 
-            {/* Station Title */}
-            <h2 className={`font-bold px-4 bg-gray-100 border-[#FFD100] text-gray-900 ${isGeneratingPDF ? 'text-3xl mb-6 py-3 border-l-8 block' : 'hidden'}`}>
-              {station.name}
-            </h2>
-
-            <div className="space-y-4">
-              {station.fields.map((field) => (
-                <div 
-                  key={field.id} 
-                  className={`bg-white page-break-inside-avoid ${isGeneratingPDF ? 'border-b-2 border-gray-200 pb-6 mb-6' : 'p-4 rounded-xl shadow-sm border border-gray-100'}`}
-                >
-                  
-                  <h3 className={`font-semibold text-gray-800 mb-3 ${isGeneratingPDF ? 'text-xl' : 'text-base'}`}>{field.name}</h3>
-                  
-                  {/* Status Buttons (Mobile) OR Text Status (PDF) */}
-                  {!isGeneratingPDF ? (
+      {/* ========================================= */}
+      {/* 2. THE MOBILE DOM (Standard interactive UI) */}
+      {/* ========================================= */}
+      {!isGeneratingPDF && (
+        <main id="mobile-content" className="max-w-md mx-auto p-4">
+          {stations.map((station, index) => (
+            <div key={station.id} className={`${index === currentIndex ? 'block' : 'hidden'}`}>
+              
+              <div className="space-y-4">
+                {station.fields.map((field) => (
+                  <div key={field.id} className="bg-white p-4 rounded-xl shadow-sm border border-gray-100">
+                    <h3 className="font-semibold text-gray-800 mb-3 text-base">{field.name}</h3>
+                    
                     <div className="flex space-x-3 mb-3">
                       <button
                         onClick={() => updateField(station.id, field.id, 'status', 'OK')}
@@ -372,15 +383,8 @@ export default function App() {
                         Replace
                       </button>
                     </div>
-                  ) : (
-                    <div className="mb-2 text-lg">
-                      Status: <strong className={field.status === 'Replace' ? 'text-red-600 font-bold' : field.status === 'OK' ? 'text-[#00843D] font-bold' : 'text-gray-500'}>{field.status || 'Not Evaluated'}</strong>
-                    </div>
-                  )}
 
-                  <div className={`flex gap-2 ${isGeneratingPDF ? 'block mt-2 w-full overflow-hidden' : ''}`}>
-                    
-                    {!isGeneratingPDF ? (
+                    <div className="flex gap-2">
                       <textarea
                         className="flex-1 bg-white text-gray-900 placeholder-gray-400 border border-gray-200 rounded-lg p-2.5 text-base focus:ring-2 focus:ring-[#00843D] focus:border-[#00843D] focus:outline-none resize-none"
                         rows={2}
@@ -389,15 +393,7 @@ export default function App() {
                         value={field.comments}
                         onChange={(e) => updateField(station.id, field.id, 'comments', e.target.value)}
                       />
-                    ) : (
-                      field.comments && (
-                        <div className="mt-2 text-gray-700 bg-gray-50 py-4 px-5 rounded-lg border border-gray-100 whitespace-pre-wrap text-base break-words w-full overflow-hidden">
-                          <strong>Comments: </strong>{field.comments}
-                        </div>
-                      )
-                    )}
-                    
-                    {!isGeneratingPDF && (
+                      
                       <div className="relative flex-shrink-0 w-20">
                         <input
                           type="file"
@@ -412,26 +408,22 @@ export default function App() {
                           <span className="text-[10px] mt-1 font-medium">{field.photoUrl ? 'Change' : 'Photo'}</span>
                         </div>
                       </div>
+                    </div>
+
+                    {field.photoUrl && (
+                      <div className="mt-3 relative rounded-lg overflow-hidden border border-gray-200">
+                        <img src={field.photoUrl} alt="Inspection" className="w-full h-32 object-cover" />
+                      </div>
                     )}
                   </div>
-
-                  {/* Photo Preview */}
-                  {field.photoUrl && (
-                    <div className={`mt-3 relative rounded-lg overflow-hidden border border-gray-200 page-break-inside-avoid ${isGeneratingPDF ? 'mt-4 border-none flex justify-start' : ''}`}>
-                      <img 
-                        src={field.photoUrl} 
-                        alt="Inspection" 
-                        className={`w-full object-cover page-break-inside-avoid ${isGeneratingPDF ? 'max-h-80 w-auto rounded-xl border border-gray-300' : 'h-32'}`} 
-                      />
-                    </div>
-                  )}
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
-          </div>
-        ))}
-      </main>
+          ))}
+        </main>
+      )}
 
+      {/* Bottom Navigation */}
       {!isGeneratingPDF && (
         <footer className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 p-4 pb-safe shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
           <div className="max-w-md mx-auto flex items-center justify-between">
@@ -466,7 +458,7 @@ export default function App() {
         </footer>
       )}
 
-      {/* Safety CSS for PDF engine */}
+      {/* Safe page break CSS for the PDF engine */}
       <style dangerouslySetInnerHTML={{__html: `
         .page-break-inside-avoid {
           page-break-inside: avoid !important;

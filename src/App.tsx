@@ -302,7 +302,7 @@ export default function App() {
                   {/* Comments & Photo Row */}
                   <div className="flex gap-2 print:block">
                     <textarea
-                      className="flex-1 bg-white text-gray-900 placeholder-gray-400 border border-gray-200 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#00843D] focus:border-[#00843D] focus:outline-none resize-none print:border-none print:p-0 print:text-gray-600 print:bg-transparent"
+                      className="flex-1 bg-white text-gray-900 placeholder-gray-400 border border-gray-200 rounded-lg p-2.5 text-base focus:ring-2 focus:ring-[#00843D] focus:border-[#00843D] focus:outline-none resize-none print:border-none print:p-0 print:text-gray-600 print:bg-transparent"
                       rows={2}
                       maxLength={200}
                       placeholder="Additional comments..."
@@ -317,7 +317,7 @@ export default function App() {
                         accept="image/*"
                         capture="environment"
                         id={`photo-${station.id}-${field.id}`}
-                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer text-base"
                         onChange={(e) => handlePhotoUpload(station.id, field.id, e)}
                       />
                       <div className={`h-full flex flex-col items-center justify-center p-2 rounded-lg border-2 border-dashed ${field.photoUrl ? 'border-[#00843D] bg-green-50 text-[#00843D]' : 'border-gray-300 text-gray-400 bg-gray-50'}`}>
@@ -374,8 +374,16 @@ export default function App() {
       </footer>
 
       <style dangerouslySetInnerHTML={{__html: `
+        @page {
+          margin: 0;
+        }
         @media print {
-          body { -webkit-print-color-adjust: exact; print-color-adjust: exact; background-color: white; }
+          body { 
+            -webkit-print-color-adjust: exact; 
+            print-color-adjust: exact; 
+            background-color: white; 
+            padding: 1.5cm; 
+          }
           .pb-safe { padding-bottom: env(safe-area-inset-bottom); }
           .page-break-inside-avoid { break-inside: avoid; }
           .print-page-break { page-break-before: always; }

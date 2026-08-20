@@ -1,10 +1,9 @@
-import React, { useState } from 'react';
+import { useState, ChangeEvent } from 'react';
 import { Camera, Plus, FileDown, ChevronLeft, ChevronRight, CheckCircle2, AlertTriangle, Image as ImageIcon } from 'lucide-react';
 
-// Embedded Logo (Base64 from user upload) for seamless display and PDF printing
+// Embedded Logo (Base64)
 const VICTOR_LOGO = "data:image/jpeg;base64,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";
 
-// Extracted from your uploaded Excel Document
 const excelRows = [
   "TIP/NOZZLE CLEAR ORIFICES", "TORCH HEAD SEAT SURFACE(S)", "NOZZLE NUT SECURE",
   "UNNATURAL BEND IN TUBES/NOZZLE", "CUTTING O2 VALVE AND LEVER", "INLET CONNECTION(S)",
@@ -17,7 +16,22 @@ const excelRows = [
   "PRESSURE AND FLOW REQUIREMENT MET AT TIP?"
 ];
 
-const defaultChecklist = excelRows.map((name, index) => ({
+// TypeScript Definitions
+interface Field {
+  id: string;
+  name: string;
+  status: 'OK' | 'Replace' | null;
+  comments: string;
+  photoUrl: string | null;
+}
+
+interface Station {
+  id: number;
+  name: string;
+  fields: Field[];
+}
+
+const defaultChecklist: Field[] = excelRows.map((name, index) => ({
   id: String(index + 1),
   name: name,
   status: null,
@@ -26,7 +40,7 @@ const defaultChecklist = excelRows.map((name, index) => ({
 }));
 
 export default function App() {
-  const [stations, setStations] = useState([
+  const [stations, setStations] = useState<Station[]>([
     { id: Date.now(), name: 'Station 1', fields: JSON.parse(JSON.stringify(defaultChecklist)) }
   ]);
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -44,17 +58,17 @@ export default function App() {
     }
   };
 
-  const updateField = (fieldId, key, value) => {
+  const updateField = <K extends keyof Field>(fieldId: string, key: K, value: Field[K]) => {
     const updatedStations = [...stations];
-    const fieldIndex = updatedStations[currentIndex].fields.findIndex(f => f.id === fieldId);
+    const fieldIndex = updatedStations[currentIndex].fields.findIndex((f: Field) => f.id === fieldId);
     if (fieldIndex > -1) {
       updatedStations[currentIndex].fields[fieldIndex][key] = value;
       setStations(updatedStations);
     }
   };
 
-  const handlePhotoUpload = (fieldId, event) => {
-    const file = event.target.files[0];
+  const handlePhotoUpload = (fieldId: string, event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
     if (file) {
       const imageUrl = URL.createObjectURL(file);
       updateField(fieldId, 'photoUrl', imageUrl);
@@ -140,7 +154,7 @@ export default function App() {
               <div className="flex gap-2 print:block">
                 <textarea
                   className="flex-1 border border-gray-200 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#00843D] focus:border-[#00843D] focus:outline-none resize-none print:border-none print:p-0 print:text-gray-600"
-                  rows="2"
+                  rows={2}
                   placeholder="Additional comments..."
                   value={field.comments}
                   onChange={(e) => updateField(field.id, 'comments', e.target.value)}

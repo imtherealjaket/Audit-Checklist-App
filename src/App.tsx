@@ -1,3 +1,4 @@
+// VERSION 7
 import { useState, useEffect } from 'react';
 import type { ChangeEvent } from 'react';
 import { Camera, Plus, FileDown, ChevronLeft, ChevronRight, CheckCircle2, AlertTriangle, Image as ImageIcon, Trash2, Pencil } from 'lucide-react';
@@ -120,46 +121,6 @@ const compressImage = (file: File): Promise<string> => {
   });
 };
 
-// SAFARI MEMORY BUG FIX: Converts heavy Base64 strings to Native File Blobs
-// This ensures Safari never purges your photos from memory during PDF generation
-const SafeImage = ({ src, alt, className }: { src: string, alt: string, className: string }) => {
-  const [objectUrl, setObjectUrl] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!src) return;
-    let url = '';
-    
-    if (src.startsWith('data:')) {
-      try {
-        const parts = src.split(',');
-        const mime = parts[0].match(/:(.*?);/)?.[1] || 'image/jpeg';
-        const bstr = atob(parts[1]);
-        let n = bstr.length;
-        const u8arr = new Uint8Array(n);
-        while (n--) {
-          u8arr[n] = bstr.charCodeAt(n);
-        }
-        const blob = new Blob([u8arr], { type: mime });
-        url = URL.createObjectURL(blob);
-        setObjectUrl(url);
-      } catch (e) {
-        setObjectUrl(src); // fallback
-      }
-    } else {
-      setObjectUrl(src);
-    }
-
-    return () => {
-      if (url) URL.revokeObjectURL(url); // Clean up memory when destroyed
-    };
-  }, [src]);
-
-  if (!objectUrl) return <div className={`bg-gray-100 animate-pulse ${className}`} />;
-
-  return <img src={objectUrl} alt={alt} className={className} />;
-};
-
-
 export default function App() {
   const [stations, setStations] = useState<Station[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -256,10 +217,13 @@ export default function App() {
   };
 
   const exportToPDF = () => {
-    // SCROLL FIX: Force the page to the top so html2canvas never miscalculates heights
+    // Scroll to the absolute top of the page before generating the PDF.
+    // This prevents html2canvas from miscalculating the height of elements 
+    // on subsequent prints if the user has scrolled down the page.
     window.scrollTo(0, 0);
     setIsGeneratingPDF(true);
     
+    // Give the browser 500ms to fully paint the new expanded layout and text nodes before taking the snapshot
     setTimeout(() => {
       const element = document.getElementById('pdf-content');
       if (!element) {
@@ -268,10 +232,10 @@ export default function App() {
       }
       
       const opt = {
-        margin:       10,
+        margin:       10, 
         filename:     `Victor_Inspection_${new Date().toLocaleDateString().replace(/\//g, '-')}.pdf`,
         image:        { type: 'jpeg', quality: 0.98 },
-        html2canvas:  { scale: 2, useCORS: true, scrollY: 0 },
+        html2canvas:  { scale: 2, useCORS: true, scrollY: 0 }, // scrollY: 0 locks the math
         jsPDF:        { unit: 'mm', format: 'letter', orientation: 'portrait' },
         pagebreak:    { mode: ['css', 'legacy'], before: '.print-page-break', avoid: '.page-break-inside-avoid' } 
       };
@@ -279,7 +243,7 @@ export default function App() {
       try {
         // @ts-ignore
         window.html2pdf().set(opt).from(element).save().then(() => {
-          setIsGeneratingPDF(false); 
+          setIsGeneratingPDF(false); // Return back to mobile app view
         }).catch((err: any) => {
           console.error("PDF generation failed:", err);
           setIsGeneratingPDF(false);
@@ -295,7 +259,7 @@ export default function App() {
   return (
     <div className="min-h-screen bg-gray-50 pb-20 font-sans">
       
-      {/* Full-Screen Loading Overlay */}
+      {/* Full-Screen Loading Overlay to mask the background formatting process */}
       {isGeneratingPDF && (
         <div className="fixed inset-0 bg-white z-[9999] flex flex-col items-center justify-center">
           <div className="w-16 h-16 border-8 border-gray-100 border-t-[#00843D] rounded-full animate-spin mb-6"></div>
@@ -337,14 +301,9 @@ export default function App() {
         </header>
       )}
 
-      {/* 
-        DOM RESET FIX: key={isGeneratingPDF ? 'pdf' : 'mobile'} 
-        This completely purges stale height markers injected by html2canvas 
-        on previous generations, stopping the engine from splitting photos.
-      */}
+      {/* Main Content Area - Expands to full 800px width for the PDF generator */}
       <main 
         id="pdf-content" 
-        key={isGeneratingPDF ? 'pdf' : 'mobile'}
         className={`mx-auto ${isGeneratingPDF ? 'w-[800px] bg-white text-black px-8 py-4' : 'max-w-md p-4'}`}
       >
         {stations.map((station, index) => (
@@ -353,7 +312,7 @@ export default function App() {
             className={`${index === currentIndex || isGeneratingPDF ? 'block' : 'hidden'} ${index > 0 && isGeneratingPDF ? 'print-page-break pt-8' : ''}`}
           >
             
-            {/* Custom High-Res PDF Header */}
+            {/* Custom High-Res PDF Header (Always remains mounted to prevent missing text bugs) */}
             <div className={`p-4 border-b-4 border-[#00843D] mb-8 items-center justify-between ${isGeneratingPDF ? 'flex' : 'hidden'}`}>
               <div>
                 <h1 className="text-4xl font-black text-[#00843D]">Inspection Report</h1>
@@ -362,6 +321,7 @@ export default function App() {
               <img src={VICTOR_LOGO} alt="Victor Logo" className="h-20 w-20 object-contain" />
             </div>
 
+            {/* Station Title */}
             <h2 className={`font-bold px-4 bg-gray-100 border-[#FFD100] text-gray-900 ${isGeneratingPDF ? 'text-3xl mb-6 py-3 border-l-8 block' : 'hidden'}`}>
               {station.name}
             </h2>
@@ -375,6 +335,7 @@ export default function App() {
                   
                   <h3 className={`font-semibold text-gray-800 mb-3 ${isGeneratingPDF ? 'text-xl' : 'text-base'}`}>{field.name}</h3>
                   
+                  {/* Status Buttons (Mobile) OR Text Status (PDF) */}
                   {!isGeneratingPDF ? (
                     <div className="flex space-x-3 mb-3">
                       <button
@@ -406,7 +367,8 @@ export default function App() {
                     </div>
                   )}
 
-                  <div className={`flex gap-2 ${isGeneratingPDF ? 'block mt-2 w-full overflow-hidden' : ''}`}>
+                  {/* Comments Box (Mobile) OR Expanding Paragraph (PDF) */}
+                  <div className={`flex gap-2 ${isGeneratingPDF ? 'block mt-2' : ''}`}>
                     
                     {!isGeneratingPDF ? (
                       <textarea
@@ -419,7 +381,7 @@ export default function App() {
                       />
                     ) : (
                       field.comments && (
-                        <div className="mt-2 text-gray-700 bg-gray-50 py-4 px-5 rounded-lg border border-gray-100 whitespace-pre-wrap text-base break-words w-full overflow-hidden">
+                        <div className="mt-2 text-gray-700 bg-gray-50 p-4 rounded-lg border border-gray-100 whitespace-pre-wrap text-base break-words w-full">
                           <strong>Comments: </strong>{field.comments}
                         </div>
                       )
@@ -443,10 +405,10 @@ export default function App() {
                     )}
                   </div>
 
-                  {/* SAFARI CACHE FIX: Safely mounts the memory-protected Blob image */}
+                  {/* Photo Preview */}
                   {field.photoUrl && (
                     <div className={`mt-3 relative rounded-lg overflow-hidden border border-gray-200 page-break-inside-avoid ${isGeneratingPDF ? 'mt-4 border-none flex justify-start' : ''}`}>
-                      <SafeImage 
+                      <img 
                         src={field.photoUrl} 
                         alt="Inspection" 
                         className={`w-full object-cover page-break-inside-avoid ${isGeneratingPDF ? 'max-h-80 w-auto rounded-xl border border-gray-300' : 'h-32'}`} 
@@ -460,6 +422,7 @@ export default function App() {
         ))}
       </main>
 
+      {/* Bottom Navigation - Hidden during PDF build */}
       {!isGeneratingPDF && (
         <footer className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 p-4 pb-safe shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
           <div className="max-w-md mx-auto flex items-center justify-between">
@@ -494,14 +457,11 @@ export default function App() {
         </footer>
       )}
 
-      {/* FINAL CSS: Uses table hack to ensure Safari completely respects page break logic */}
+      {/* Safety CSS for PDF engine */}
       <style dangerouslySetInnerHTML={{__html: `
         .page-break-inside-avoid {
           page-break-inside: avoid !important;
           break-inside: avoid !important;
-          -webkit-column-break-inside: avoid !important;
-          display: table !important; 
-          width: 100% !important; 
         }
       `}} />
     </div>

@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import type { ChangeEvent } from 'react';
-import { Camera, Plus, FileDown, ChevronLeft, ChevronRight, CheckCircle2, AlertTriangle, Image as ImageIcon } from 'lucide-react';
+import { Camera, Plus, FileDown, ChevronLeft, ChevronRight, CheckCircle2, AlertTriangle, Image as ImageIcon, Trash2 } from 'lucide-react';
 
 // Embedded Logo (Base64)
 const VICTOR_LOGO = "data:image/jpeg;base64,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";
@@ -40,11 +40,65 @@ const defaultChecklist: Field[] = excelRows.map((name, index) => ({
   photoUrl: null
 }));
 
+// A helper function to compress large iPhone images down to a saveable size
+const compressImage = (file: File): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = (event) => {
+      const img = new Image();
+      img.src = event.target?.result as string;
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const MAX_WIDTH = 1000;
+        const MAX_HEIGHT = 1000;
+        let width = img.width;
+        let height = img.height;
+
+        if (width > height) {
+          if (width > MAX_WIDTH) {
+            height *= MAX_WIDTH / width;
+            width = MAX_WIDTH;
+          }
+        } else {
+          if (height > MAX_HEIGHT) {
+            width *= MAX_HEIGHT / height;
+            height = MAX_HEIGHT;
+          }
+        }
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx?.drawImage(img, 0, 0, width, height);
+        // Returns a lightweight Base64 string that can easily be saved in the browser memory
+        resolve(canvas.toDataURL('image/jpeg', 0.6));
+      };
+      img.onerror = (error) => reject(error);
+    };
+    reader.onerror = (error) => reject(error);
+  });
+};
+
 export default function App() {
-  const [stations, setStations] = useState<Station[]>([
-    { id: Date.now(), name: 'Station 1', fields: JSON.parse(JSON.stringify(defaultChecklist)) }
-  ]);
+  // Load data from Local Storage when the app opens, or use defaults
+  const [stations, setStations] = useState<Station[]>(() => {
+    const savedData = localStorage.getItem('victor-inspections-data');
+    if (savedData) {
+      try {
+        return JSON.parse(savedData);
+      } catch (e) {
+        console.error("Failed to parse saved app data.");
+      }
+    }
+    return [{ id: Date.now(), name: 'Station 1', fields: JSON.parse(JSON.stringify(defaultChecklist)) }];
+  });
+  
   const [currentIndex, setCurrentIndex] = useState(0);
+
+  // Automatically save to Local Storage every time a change is made
+  useEffect(() => {
+    localStorage.setItem('victor-inspections-data', JSON.stringify(stations));
+  }, [stations]);
 
   const currentStation = stations[currentIndex];
 
@@ -56,6 +110,15 @@ export default function App() {
         { id: Date.now(), name: stationName, fields: JSON.parse(JSON.stringify(defaultChecklist)) }
       ]);
       setCurrentIndex(stations.length);
+    }
+  };
+
+  const resetApp = () => {
+    const confirmReset = window.confirm("Are you sure you want to delete all saved data and start a new report? This cannot be undone.");
+    if (confirmReset) {
+      localStorage.removeItem('victor-inspections-data');
+      setStations([{ id: Date.now(), name: 'Station 1', fields: JSON.parse(JSON.stringify(defaultChecklist)) }]);
+      setCurrentIndex(0);
     }
   };
 
@@ -71,11 +134,16 @@ export default function App() {
     }));
   };
 
-  const handlePhotoUpload = (stationId: number, fieldId: string, event: ChangeEvent<HTMLInputElement>) => {
+  const handlePhotoUpload = async (stationId: number, fieldId: string, event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
-      const imageUrl = URL.createObjectURL(file);
-      updateField(stationId, fieldId, 'photoUrl', imageUrl);
+      try {
+        // Compress the image before saving it so we don't crash the browser storage
+        const compressedBase64 = await compressImage(file);
+        updateField(stationId, fieldId, 'photoUrl', compressedBase64);
+      } catch (error) {
+        alert("Sorry, there was an issue processing that photo.");
+      }
     }
   };
 
@@ -93,13 +161,22 @@ export default function App() {
             <img src={VICTOR_LOGO} alt="Victor Logo" className="h-8 w-8 rounded-full bg-white object-cover border-2 border-[#FFD100]" />
             <h1 className="text-xl font-bold truncate text-white">{currentStation.name}</h1>
           </div>
-          <button 
-            onClick={exportToPDF}
-            className="p-2 bg-[#006A31] rounded-full hover:bg-[#005226] transition text-[#FFD100]"
-            title="Export to PDF"
-          >
-            <FileDown size={20} />
-          </button>
+          <div className="flex items-center space-x-2">
+            <button 
+              onClick={resetApp}
+              className="p-2 bg-[#006A31] rounded-full hover:bg-red-600 transition text-[#FFD100] hover:text-white"
+              title="Clear Data & Start Over"
+            >
+              <Trash2 size={20} />
+            </button>
+            <button 
+              onClick={exportToPDF}
+              className="p-2 bg-[#006A31] rounded-full hover:bg-[#005226] transition text-[#FFD100]"
+              title="Export to PDF"
+            >
+              <FileDown size={20} />
+            </button>
+          </div>
         </div>
       </header>
 

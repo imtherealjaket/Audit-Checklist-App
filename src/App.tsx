@@ -59,20 +59,23 @@ export default function App() {
     }
   };
 
-  const updateField = <K extends keyof Field>(fieldId: string, key: K, value: Field[K]) => {
-    const updatedStations = [...stations];
-    const fieldIndex = updatedStations[currentIndex].fields.findIndex((f: Field) => f.id === fieldId);
-    if (fieldIndex > -1) {
-      updatedStations[currentIndex].fields[fieldIndex][key] = value;
-      setStations(updatedStations);
-    }
+  const updateField = <K extends keyof Field>(stationId: number, fieldId: string, key: K, value: Field[K]) => {
+    setStations(prevStations => prevStations.map(st => {
+      if (st.id === stationId) {
+        return {
+          ...st,
+          fields: st.fields.map(f => f.id === fieldId ? { ...f, [key]: value } : f)
+        };
+      }
+      return st;
+    }));
   };
 
-  const handlePhotoUpload = (fieldId: string, event: ChangeEvent<HTMLInputElement>) => {
+  const handlePhotoUpload = (stationId: number, fieldId: string, event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
       const imageUrl = URL.createObjectURL(file);
-      updateField(fieldId, 'photoUrl', imageUrl);
+      updateField(stationId, fieldId, 'photoUrl', imageUrl);
     }
   };
 
@@ -100,93 +103,103 @@ export default function App() {
         </div>
       </header>
 
-      {/* Print-only PDF Header */}
-      <div className="hidden print:flex p-4 border-b-4 border-[#00843D] mb-6 items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-black text-[#00843D]">Inspection Report</h1>
-          <p className="text-gray-600 font-medium mt-1">Generated on: {new Date().toLocaleDateString()}</p>
-        </div>
-        <img src={VICTOR_LOGO} alt="Victor Logo" className="h-16 w-16" />
-      </div>
-
-      {/* Main Content */}
+      {/* Main Content - Maps through ALL stations to allow for multi-page PDF generation */}
       <main className="p-4 max-w-md mx-auto print:max-w-full print:p-0">
-        
-        {/* Print-only Station Title */}
-        <h2 className="hidden print:block text-2xl font-bold mb-4 px-4 bg-gray-100 py-2 border-l-4 border-[#FFD100]">{currentStation.name}</h2>
-
-        <div className="space-y-4">
-          {currentStation.fields.map((field) => (
-            <div key={field.id} className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 print:shadow-none print:border-b print:border-gray-200 print:rounded-none print:mb-2 print:p-2 page-break-inside-avoid">
-              <h3 className="font-semibold text-gray-800 mb-3 text-sm print:text-base">{field.name}</h3>
-              
-              {/* Status Toggles */}
-              <div className="flex space-x-3 mb-3 print:hidden">
-                <button
-                  onClick={() => updateField(field.id, 'status', 'OK')}
-                  className={`flex-1 flex items-center justify-center py-2.5 rounded-lg border-2 transition text-sm ${
-                    field.status === 'OK' 
-                      ? 'bg-[#00843D] border-[#00843D] text-white font-bold' 
-                      : 'border-gray-200 text-gray-500 hover:bg-gray-50'
-                  }`}
-                >
-                  <CheckCircle2 className="mr-2" size={18} />
-                  OK
-                </button>
-                <button
-                  onClick={() => updateField(field.id, 'status', 'Replace')}
-                  className={`flex-1 flex items-center justify-center py-2.5 rounded-lg border-2 transition text-sm ${
-                    field.status === 'Replace' 
-                      ? 'bg-[#FFD100] border-[#FFD100] text-gray-900 font-bold' 
-                      : 'border-gray-200 text-gray-500 hover:bg-gray-50'
-                  }`}
-                >
-                  <AlertTriangle className="mr-2" size={18} />
-                  Replace
-                </button>
+        {stations.map((station, index) => (
+          <div 
+            key={station.id} 
+            // On screen: Only show if it's the current station. On print: Show all of them, and break page if it isn't the first one.
+            className={`${index === currentIndex ? 'block' : 'hidden print:block'} ${index > 0 ? 'print-page-break' : ''}`}
+          >
+            
+            {/* Print-only PDF Header - Added inside the loop so every station/page gets a nice header */}
+            <div className="hidden print:flex p-4 border-b-4 border-[#00843D] mb-6 items-center justify-between">
+              <div>
+                <h1 className="text-3xl font-black text-[#00843D]">Inspection Report</h1>
+                <p className="text-gray-600 font-medium mt-1">Generated on: {new Date().toLocaleDateString()}</p>
               </div>
-
-              {/* Print-only Status */}
-              <div className="hidden print:block mb-2 text-base">
-                Status: <strong className={field.status === 'Replace' ? 'text-amber-600' : 'text-green-700'}>{field.status || 'Not Evaluated'}</strong>
-              </div>
-
-              {/* Comments & Photo Row */}
-              <div className="flex gap-2 print:block">
-                <textarea
-                  className="flex-1 border border-gray-200 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#00843D] focus:border-[#00843D] focus:outline-none resize-none print:border-none print:p-0 print:text-gray-600"
-                  rows={2}
-                  placeholder="Additional comments..."
-                  value={field.comments}
-                  onChange={(e) => updateField(field.id, 'comments', e.target.value)}
-                />
-                
-                {/* Photo Upload Button - Hidden on Print */}
-                <div className="relative print:hidden flex-shrink-0 w-20">
-                  <input
-                    type="file"
-                    accept="image/*"
-                    capture="environment"
-                    id={`photo-${field.id}`}
-                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                    onChange={(e) => handlePhotoUpload(field.id, e)}
-                  />
-                  <div className={`h-full flex flex-col items-center justify-center p-2 rounded-lg border-2 border-dashed ${field.photoUrl ? 'border-[#00843D] bg-green-50 text-[#00843D]' : 'border-gray-300 text-gray-400 bg-gray-50'}`}>
-                    {field.photoUrl ? <ImageIcon size={20} /> : <Camera size={20} />}
-                    <span className="text-[10px] mt-1 font-medium">{field.photoUrl ? 'Change' : 'Photo'}</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Photo Preview */}
-              {field.photoUrl && (
-                <div className="mt-3 relative rounded-lg overflow-hidden border border-gray-200 print:mt-2">
-                  <img src={field.photoUrl} alt="Inspection" className="w-full h-32 object-cover print:h-auto print:max-h-48 print:w-auto" />
-                </div>
-              )}
+              <img src={VICTOR_LOGO} alt="Victor Logo" className="h-16 w-16" />
             </div>
-          ))}
-        </div>
+
+            {/* Print-only Station Title */}
+            <h2 className="hidden print:block text-2xl font-bold mb-4 px-4 bg-gray-100 py-2 border-l-4 border-[#FFD100]">
+              {station.name}
+            </h2>
+
+            <div className="space-y-4">
+              {station.fields.map((field) => (
+                <div key={field.id} className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 print:shadow-none print:border-b print:border-gray-200 print:rounded-none print:mb-2 print:p-2 page-break-inside-avoid">
+                  <h3 className="font-semibold text-gray-800 mb-3 text-sm print:text-base">{field.name}</h3>
+                  
+                  {/* Status Toggles */}
+                  <div className="flex space-x-3 mb-3 print:hidden">
+                    <button
+                      onClick={() => updateField(station.id, field.id, 'status', 'OK')}
+                      className={`flex-1 flex items-center justify-center py-2.5 rounded-lg border-2 transition text-sm ${
+                        field.status === 'OK' 
+                          ? 'bg-[#00843D] border-[#00843D] text-white font-bold' 
+                          : 'border-gray-200 text-gray-500 hover:bg-gray-50'
+                      }`}
+                    >
+                      <CheckCircle2 className="mr-2" size={18} />
+                      OK
+                    </button>
+                    <button
+                      onClick={() => updateField(station.id, field.id, 'status', 'Replace')}
+                      className={`flex-1 flex items-center justify-center py-2.5 rounded-lg border-2 transition text-sm ${
+                        field.status === 'Replace' 
+                          ? 'bg-[#FFD100] border-[#FFD100] text-gray-900 font-bold' 
+                          : 'border-gray-200 text-gray-500 hover:bg-gray-50'
+                      }`}
+                    >
+                      <AlertTriangle className="mr-2" size={18} />
+                      Replace
+                    </button>
+                  </div>
+
+                  {/* Print-only Status */}
+                  <div className="hidden print:block mb-2 text-base">
+                    Status: <strong className={field.status === 'Replace' ? 'text-amber-600' : 'text-green-700'}>{field.status || 'Not Evaluated'}</strong>
+                  </div>
+
+                  {/* Comments & Photo Row */}
+                  <div className="flex gap-2 print:block">
+                    <textarea
+                      className="flex-1 border border-gray-200 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-[#00843D] focus:border-[#00843D] focus:outline-none resize-none print:border-none print:p-0 print:text-gray-600"
+                      rows={2}
+                      placeholder="Additional comments..."
+                      value={field.comments}
+                      onChange={(e) => updateField(station.id, field.id, 'comments', e.target.value)}
+                    />
+                    
+                    {/* Photo Upload Button - Hidden on Print */}
+                    <div className="relative print:hidden flex-shrink-0 w-20">
+                      <input
+                        type="file"
+                        accept="image/*"
+                        capture="environment"
+                        id={`photo-${station.id}-${field.id}`}
+                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                        onChange={(e) => handlePhotoUpload(station.id, field.id, e)}
+                      />
+                      <div className={`h-full flex flex-col items-center justify-center p-2 rounded-lg border-2 border-dashed ${field.photoUrl ? 'border-[#00843D] bg-green-50 text-[#00843D]' : 'border-gray-300 text-gray-400 bg-gray-50'}`}>
+                        {field.photoUrl ? <ImageIcon size={20} /> : <Camera size={20} />}
+                        <span className="text-[10px] mt-1 font-medium">{field.photoUrl ? 'Change' : 'Photo'}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Photo Preview */}
+                  {field.photoUrl && (
+                    <div className="mt-3 relative rounded-lg overflow-hidden border border-gray-200 print:mt-2">
+                      <img src={field.photoUrl} alt="Inspection" className="w-full h-32 object-cover print:h-auto print:max-h-48 print:w-auto" />
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
       </main>
 
       {/* Bottom Navigation */}
@@ -224,9 +237,10 @@ export default function App() {
 
       <style dangerouslySetInnerHTML={{__html: `
         @media print {
-          body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+          body { -webkit-print-color-adjust: exact; print-color-adjust: exact; background-color: white; }
           .pb-safe { padding-bottom: env(safe-area-inset-bottom); }
           .page-break-inside-avoid { break-inside: avoid; }
+          .print-page-break { page-break-before: always; }
         }
       `}} />
     </div>

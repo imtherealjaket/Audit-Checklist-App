@@ -1,4 +1,4 @@
-// VERSION 14
+// VERSION 15
 import { useState, useEffect } from 'react';
 import type { ChangeEvent } from 'react';
 import { Camera, Plus, FileDown, ChevronLeft, ChevronRight, CheckCircle2, AlertTriangle, Image as ImageIcon, Trash2, Pencil, Settings2 } from 'lucide-react';
@@ -154,7 +154,7 @@ export default function App() {
       
       if (savedData && savedData.length > 0) {
         // BACKWARDS COMPATIBILITY FIX: 
-        // Intercept old V7/V12 data and inject the new 'config' object so the app doesn't crash!
+        // Intercept old V7/V12 data and inject the new 'config' object so the app doesn't crash
         const migratedData = savedData.map((st: any) => ({
           ...st,
           config: st.config || { ...defaultStationConfig }
@@ -247,7 +247,6 @@ export default function App() {
   const updateConfig = <K extends keyof StationConfig>(stationId: number, key: K, value: StationConfig[K]) => {
     setStations(prevStations => prevStations.map(st => {
       if (st.id === stationId) {
-        // Safe fallback injection just in case config is missing
         const currentConfig = st.config || { ...defaultStationConfig };
         return { ...st, config: { ...currentConfig, [key]: value } };
       }
@@ -289,7 +288,7 @@ export default function App() {
                 <label className="block text-sm font-bold text-gray-700 mb-1">Product</label>
                 <input 
                   type="text" 
-                  className="w-full border border-gray-300 rounded-lg p-3 text-base focus:ring-2 focus:ring-[#00843D] focus:outline-none"
+                  className="w-full bg-white text-gray-900 placeholder-gray-400 border border-gray-300 rounded-lg p-3 text-base focus:ring-2 focus:ring-[#00843D] focus:outline-none"
                   placeholder="e.g. Victor Edge Series"
                   value={startupConfig.product} 
                   onChange={(e) => setStartupConfig({...startupConfig, product: e.target.value})} 
@@ -299,7 +298,7 @@ export default function App() {
                 <label className="block text-sm font-bold text-gray-700 mb-1">Application</label>
                 <input 
                   type="text" 
-                  className="w-full border border-gray-300 rounded-lg p-3 text-base focus:ring-2 focus:ring-[#00843D] focus:outline-none"
+                  className="w-full bg-white text-gray-900 placeholder-gray-400 border border-gray-300 rounded-lg p-3 text-base focus:ring-2 focus:ring-[#00843D] focus:outline-none"
                   placeholder="e.g. Heavy Cutting"
                   value={startupConfig.application} 
                   onChange={(e) => setStartupConfig({...startupConfig, application: e.target.value})} 
@@ -309,7 +308,7 @@ export default function App() {
                 <label className="block text-sm font-bold text-gray-700 mb-1">Nominal Settings</label>
                 <input 
                   type="text" 
-                  className="w-full border border-gray-300 rounded-lg p-3 text-base focus:ring-2 focus:ring-[#00843D] focus:outline-none"
+                  className="w-full bg-white text-gray-900 placeholder-gray-400 border border-gray-300 rounded-lg p-3 text-base focus:ring-2 focus:ring-[#00843D] focus:outline-none"
                   placeholder="e.g. 40 PSIG O2, 10 PSIG Fuel"
                   value={startupConfig.nominalSettings} 
                   onChange={(e) => setStartupConfig({...startupConfig, nominalSettings: e.target.value})} 
@@ -318,7 +317,7 @@ export default function App() {
               <div>
                 <label className="block text-sm font-bold text-gray-700 mb-1">Fuel Gas</label>
                 <select 
-                  className="w-full border border-gray-300 rounded-lg p-3 text-base focus:ring-2 focus:ring-[#00843D] focus:outline-none bg-white"
+                  className="w-full bg-white text-gray-900 border border-gray-300 rounded-lg p-3 text-base focus:ring-2 focus:ring-[#00843D] focus:outline-none"
                   value={startupConfig.fuel}
                   onChange={(e) => setStartupConfig({...startupConfig, fuel: e.target.value})}
                 >
@@ -335,7 +334,7 @@ export default function App() {
                   <label className="block text-sm font-bold text-gray-700 mb-1">Specify Other Fuel</label>
                   <input 
                     type="text" 
-                    className="w-full border border-gray-300 rounded-lg p-3 text-base focus:ring-2 focus:ring-[#00843D] focus:outline-none"
+                    className="w-full bg-white text-gray-900 placeholder-gray-400 border border-gray-300 rounded-lg p-3 text-base focus:ring-2 focus:ring-[#00843D] focus:outline-none"
                     placeholder="Enter fuel type"
                     value={startupConfig.fuelOther} 
                     onChange={(e) => setStartupConfig({...startupConfig, fuelOther: e.target.value})} 
@@ -406,7 +405,7 @@ export default function App() {
                   {station.name}
                 </h2>
 
-                {/* STATION CONFIGURATION CARD - Protected with optional chaining */}
+                {/* STATION CONFIGURATION CARD */}
                 <div className="bg-white p-4 rounded-xl shadow-sm border border-blue-100 mb-6 print:border-none print:shadow-none print:mb-4 print:p-0">
                   <div className="flex items-center mb-4 print:hidden">
                     <Settings2 size={20} className="text-[#00843D] mr-2" />
@@ -419,7 +418,7 @@ export default function App() {
                       <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Product</label>
                       <input 
                         type="text" 
-                        className="w-full border border-gray-200 rounded-lg p-2.5 text-base focus:ring-2 focus:ring-[#00843D] focus:outline-none"
+                        className="w-full bg-white text-gray-900 placeholder-gray-400 border border-gray-200 rounded-lg p-2.5 text-base focus:ring-2 focus:ring-[#00843D] focus:outline-none"
                         value={station.config?.product || ''} 
                         onChange={(e) => updateConfig(station.id, 'product', e.target.value)} 
                       />
@@ -429,7 +428,7 @@ export default function App() {
                         <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Application</label>
                         <input 
                           type="text" 
-                          className="w-full border border-gray-200 rounded-lg p-2.5 text-base focus:ring-2 focus:ring-[#00843D] focus:outline-none"
+                          className="w-full bg-white text-gray-900 placeholder-gray-400 border border-gray-200 rounded-lg p-2.5 text-base focus:ring-2 focus:ring-[#00843D] focus:outline-none"
                           value={station.config?.application || ''} 
                           onChange={(e) => updateConfig(station.id, 'application', e.target.value)} 
                         />
@@ -438,7 +437,7 @@ export default function App() {
                         <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Settings</label>
                         <input 
                           type="text" 
-                          className="w-full border border-gray-200 rounded-lg p-2.5 text-base focus:ring-2 focus:ring-[#00843D] focus:outline-none"
+                          className="w-full bg-white text-gray-900 placeholder-gray-400 border border-gray-200 rounded-lg p-2.5 text-base focus:ring-2 focus:ring-[#00843D] focus:outline-none"
                           value={station.config?.nominalSettings || ''} 
                           onChange={(e) => updateConfig(station.id, 'nominalSettings', e.target.value)} 
                         />
@@ -447,7 +446,7 @@ export default function App() {
                     <div>
                       <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Fuel Gas</label>
                       <select 
-                        className="w-full border border-gray-200 rounded-lg p-2.5 text-base focus:ring-2 focus:ring-[#00843D] focus:outline-none bg-white"
+                        className="w-full bg-white text-gray-900 border border-gray-200 rounded-lg p-2.5 text-base focus:ring-2 focus:ring-[#00843D] focus:outline-none"
                         value={station.config?.fuel || ''}
                         onChange={(e) => updateConfig(station.id, 'fuel', e.target.value)}
                       >
@@ -464,7 +463,7 @@ export default function App() {
                         <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Specify Other</label>
                         <input 
                           type="text" 
-                          className="w-full border border-gray-200 rounded-lg p-2.5 text-base focus:ring-2 focus:ring-[#00843D] focus:outline-none"
+                          className="w-full bg-white text-gray-900 placeholder-gray-400 border border-gray-200 rounded-lg p-2.5 text-base focus:ring-2 focus:ring-[#00843D] focus:outline-none"
                           value={station.config?.fuelOther || ''} 
                           onChange={(e) => updateConfig(station.id, 'fuelOther', e.target.value)} 
                         />

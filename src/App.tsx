@@ -1,4 +1,4 @@
-// VERSION 13
+// VERSION 14
 import { useState, useEffect } from 'react';
 import type { ChangeEvent } from 'react';
 import { Camera, Plus, FileDown, ChevronLeft, ChevronRight, CheckCircle2, AlertTriangle, Image as ImageIcon, Trash2, Pencil, Settings2 } from 'lucide-react';
@@ -151,8 +151,15 @@ export default function App() {
   useEffect(() => {
     const loadData = async () => {
       const savedData = await loadFromDB('stations-data');
+      
       if (savedData && savedData.length > 0) {
-        setStations(savedData);
+        // BACKWARDS COMPATIBILITY FIX: 
+        // Intercept old V7/V12 data and inject the new 'config' object so the app doesn't crash!
+        const migratedData = savedData.map((st: any) => ({
+          ...st,
+          config: st.config || { ...defaultStationConfig }
+        }));
+        setStations(migratedData);
       } else {
         // If completely empty, show the startup modal
         setStations([]);
@@ -196,8 +203,8 @@ export default function App() {
         { 
           id: Date.now(), 
           name: stationName, 
-          // Copy config from current station
-          config: JSON.parse(JSON.stringify(currentStation.config)),
+          // Safely clone config from current station, or fallback to default
+          config: currentStation?.config ? JSON.parse(JSON.stringify(currentStation.config)) : { ...defaultStationConfig },
           fields: JSON.parse(JSON.stringify(defaultChecklist)) 
         }
       ]);
@@ -240,7 +247,9 @@ export default function App() {
   const updateConfig = <K extends keyof StationConfig>(stationId: number, key: K, value: StationConfig[K]) => {
     setStations(prevStations => prevStations.map(st => {
       if (st.id === stationId) {
-        return { ...st, config: { ...st.config, [key]: value } };
+        // Safe fallback injection just in case config is missing
+        const currentConfig = st.config || { ...defaultStationConfig };
+        return { ...st, config: { ...currentConfig, [key]: value } };
       }
       return st;
     }));
@@ -397,7 +406,7 @@ export default function App() {
                   {station.name}
                 </h2>
 
-                {/* STATION CONFIGURATION CARD */}
+                {/* STATION CONFIGURATION CARD - Protected with optional chaining */}
                 <div className="bg-white p-4 rounded-xl shadow-sm border border-blue-100 mb-6 print:border-none print:shadow-none print:mb-4 print:p-0">
                   <div className="flex items-center mb-4 print:hidden">
                     <Settings2 size={20} className="text-[#00843D] mr-2" />
@@ -411,7 +420,7 @@ export default function App() {
                       <input 
                         type="text" 
                         className="w-full border border-gray-200 rounded-lg p-2.5 text-base focus:ring-2 focus:ring-[#00843D] focus:outline-none"
-                        value={station.config.product} 
+                        value={station.config?.product || ''} 
                         onChange={(e) => updateConfig(station.id, 'product', e.target.value)} 
                       />
                     </div>
@@ -421,7 +430,7 @@ export default function App() {
                         <input 
                           type="text" 
                           className="w-full border border-gray-200 rounded-lg p-2.5 text-base focus:ring-2 focus:ring-[#00843D] focus:outline-none"
-                          value={station.config.application} 
+                          value={station.config?.application || ''} 
                           onChange={(e) => updateConfig(station.id, 'application', e.target.value)} 
                         />
                       </div>
@@ -430,7 +439,7 @@ export default function App() {
                         <input 
                           type="text" 
                           className="w-full border border-gray-200 rounded-lg p-2.5 text-base focus:ring-2 focus:ring-[#00843D] focus:outline-none"
-                          value={station.config.nominalSettings} 
+                          value={station.config?.nominalSettings || ''} 
                           onChange={(e) => updateConfig(station.id, 'nominalSettings', e.target.value)} 
                         />
                       </div>
@@ -439,7 +448,7 @@ export default function App() {
                       <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Fuel Gas</label>
                       <select 
                         className="w-full border border-gray-200 rounded-lg p-2.5 text-base focus:ring-2 focus:ring-[#00843D] focus:outline-none bg-white"
-                        value={station.config.fuel}
+                        value={station.config?.fuel || ''}
                         onChange={(e) => updateConfig(station.id, 'fuel', e.target.value)}
                       >
                         <option value="">Select...</option>
@@ -450,13 +459,13 @@ export default function App() {
                         <option value="Other">Other</option>
                       </select>
                     </div>
-                    {station.config.fuel === 'Other' && (
+                    {station.config?.fuel === 'Other' && (
                       <div>
                         <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Specify Other</label>
                         <input 
                           type="text" 
                           className="w-full border border-gray-200 rounded-lg p-2.5 text-base focus:ring-2 focus:ring-[#00843D] focus:outline-none"
-                          value={station.config.fuelOther} 
+                          value={station.config?.fuelOther || ''} 
                           onChange={(e) => updateConfig(station.id, 'fuelOther', e.target.value)} 
                         />
                       </div>
@@ -465,12 +474,12 @@ export default function App() {
 
                   {/* Print Layout for Config */}
                   <div className="hidden print:grid grid-cols-2 gap-y-2 gap-x-4 border-b-2 border-gray-800 pb-4 mb-2">
-                    <div className="text-base"><strong className="text-gray-800 uppercase text-sm tracking-wide mr-2">Product:</strong> {station.config.product || 'N/A'}</div>
-                    <div className="text-base"><strong className="text-gray-800 uppercase text-sm tracking-wide mr-2">Application:</strong> {station.config.application || 'N/A'}</div>
-                    <div className="text-base"><strong className="text-gray-800 uppercase text-sm tracking-wide mr-2">Settings:</strong> {station.config.nominalSettings || 'N/A'}</div>
+                    <div className="text-base"><strong className="text-gray-800 uppercase text-sm tracking-wide mr-2">Product:</strong> {station.config?.product || 'N/A'}</div>
+                    <div className="text-base"><strong className="text-gray-800 uppercase text-sm tracking-wide mr-2">Application:</strong> {station.config?.application || 'N/A'}</div>
+                    <div className="text-base"><strong className="text-gray-800 uppercase text-sm tracking-wide mr-2">Settings:</strong> {station.config?.nominalSettings || 'N/A'}</div>
                     <div className="text-base">
                       <strong className="text-gray-800 uppercase text-sm tracking-wide mr-2">Fuel Gas:</strong> 
-                      {station.config.fuel === 'Other' ? (station.config.fuelOther || 'Other') : (station.config.fuel || 'N/A')}
+                      {station.config?.fuel === 'Other' ? (station.config?.fuelOther || 'Other') : (station.config?.fuel || 'N/A')}
                     </div>
                   </div>
                 </div>

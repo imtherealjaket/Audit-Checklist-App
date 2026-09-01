@@ -1,7 +1,7 @@
-// VERSION 12
+// VERSION 13
 import { useState, useEffect } from 'react';
 import type { ChangeEvent } from 'react';
-import { Camera, Plus, FileDown, ChevronLeft, ChevronRight, CheckCircle2, AlertTriangle, Image as ImageIcon, Trash2, Pencil, X } from 'lucide-react';
+import { Camera, Plus, FileDown, ChevronLeft, ChevronRight, CheckCircle2, AlertTriangle, Image as ImageIcon, Trash2, Pencil, Settings2 } from 'lucide-react';
 
 const VICTOR_LOGO = "/IMG_0310.jpeg";
 
@@ -26,9 +26,18 @@ interface Field {
   photoUrl: string | null;
 }
 
+interface StationConfig {
+  product: string;
+  nominalSettings: string;
+  application: string;
+  fuel: string;
+  fuelOther: string;
+}
+
 interface Station {
   id: number;
   name: string;
+  config: StationConfig;
   fields: Field[];
 }
 
@@ -39,6 +48,14 @@ const defaultChecklist: Field[] = excelRows.map((name, index) => ({
   comments: '',
   photoUrl: null
 }));
+
+const defaultStationConfig: StationConfig = {
+  product: '',
+  nominalSettings: '',
+  application: '',
+  fuel: '',
+  fuelOther: ''
+};
 
 // --- INDEXED DB SETUP ---
 const DB_NAME = 'VictorInspectionsDB';
@@ -99,7 +116,6 @@ const compressImage = (file: File): Promise<string> => {
       img.src = event.target?.result as string;
       img.onload = () => {
         const canvas = document.createElement('canvas');
-        // Restored high-quality dimensions
         const MAX_WIDTH = 1000;
         const MAX_HEIGHT = 1000;
         let width = img.width;
@@ -126,18 +142,10 @@ export default function App() {
   const [stations, setStations] = useState<Station[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isLoaded, setIsLoaded] = useState(false);
-  const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
-  const [viewingPhoto, setViewingPhoto] = useState<string | null>(null);
-
-  // Pre-load the professional PDF generation library so it's ready instantly
-  useEffect(() => {
-    if (!document.getElementById('html2pdf-script')) {
-      const script = document.createElement('script');
-      script.id = 'html2pdf-script';
-      script.src = "https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js";
-      document.head.appendChild(script);
-    }
-  }, []);
+  
+  // Startup Modal State
+  const [showStartupModal, setShowStartupModal] = useState(false);
+  const [startupConfig, setStartupConfig] = useState<StationConfig>(defaultStationConfig);
 
   // Load data from IndexedDB
   useEffect(() => {
@@ -146,7 +154,9 @@ export default function App() {
       if (savedData && savedData.length > 0) {
         setStations(savedData);
       } else {
-        setStations([{ id: Date.now(), name: 'Station 1', fields: JSON.parse(JSON.stringify(defaultChecklist)) }]);
+        // If completely empty, show the startup modal
+        setStations([]);
+        setShowStartupModal(true);
       }
       setIsLoaded(true);
     };
@@ -155,7 +165,9 @@ export default function App() {
 
   // Auto-save data
   useEffect(() => {
-    if (isLoaded) saveToDB('stations-data', stations);
+    if (isLoaded && stations.length > 0) {
+      saveToDB('stations-data', stations);
+    }
   }, [stations, isLoaded]);
 
   if (!isLoaded) {
@@ -164,12 +176,30 @@ export default function App() {
 
   const currentStation = stations[currentIndex];
 
+  const handleStartNewInspection = () => {
+    const newStation: Station = {
+      id: Date.now(),
+      name: 'Station 1',
+      config: { ...startupConfig },
+      fields: JSON.parse(JSON.stringify(defaultChecklist))
+    };
+    setStations([newStation]);
+    setCurrentIndex(0);
+    setShowStartupModal(false);
+  };
+
   const handleAddStation = () => {
     const stationName = window.prompt('Enter name for the new station:', `Station ${stations.length + 1}`);
     if (stationName) {
       setStations([
         ...stations,
-        { id: Date.now(), name: stationName, fields: JSON.parse(JSON.stringify(defaultChecklist)) }
+        { 
+          id: Date.now(), 
+          name: stationName, 
+          // Copy config from current station
+          config: JSON.parse(JSON.stringify(currentStation.config)),
+          fields: JSON.parse(JSON.stringify(defaultChecklist)) 
+        }
       ]);
       setCurrentIndex(stations.length);
     }
@@ -187,10 +217,11 @@ export default function App() {
   const resetApp = async () => {
     const confirmReset = window.confirm("Are you sure you want to delete all saved data and start a new report? This cannot be undone.");
     if (confirmReset) {
-      const freshStart = [{ id: Date.now(), name: 'Station 1', fields: JSON.parse(JSON.stringify(defaultChecklist)) }];
-      await saveToDB('stations-data', freshStart);
-      setStations(freshStart);
+      await saveToDB('stations-data', []);
+      setStations([]);
       setCurrentIndex(0);
+      setStartupConfig(defaultStationConfig);
+      setShowStartupModal(true);
     }
   };
 
@@ -201,6 +232,15 @@ export default function App() {
           ...st,
           fields: st.fields.map(f => f.id === fieldId ? { ...f, [key]: value } : f)
         };
+      }
+      return st;
+    }));
+  };
+
+  const updateConfig = <K extends keyof StationConfig>(stationId: number, key: K, value: StationConfig[K]) => {
+    setStations(prevStations => prevStations.map(st => {
+      if (st.id === stationId) {
+        return { ...st, config: { ...st.config, [key]: value } };
       }
       return st;
     }));
@@ -219,294 +259,342 @@ export default function App() {
   };
 
   const exportToPDF = () => {
-    window.scrollTo(0, 0);
-    setIsGeneratingPDF(true);
-    
-    // Clean up invisible html2pdf page break markers leftover from previous prints
-    const staleBreaks = document.querySelectorAll('.html2pdf__page-break');
-    staleBreaks.forEach(b => b.remove());
-
-    setTimeout(() => {
-      const element = document.getElementById('pdf-content');
-      if (!element) {
-        setIsGeneratingPDF(false);
-        return;
-      }
-      
-      const opt = {
-        margin:       15, 
-        filename:     `Victor_Inspection_${new Date().toLocaleDateString().replace(/\//g, '-')}.pdf`,
-        image:        { type: 'jpeg', quality: 0.98 },
-        html2canvas:  { 
-          scale: 2, 
-          useCORS: true, 
-          scrollY: 0, 
-          windowWidth: 800 
-        },
-        jsPDF:        { unit: 'mm', format: 'letter', orientation: 'portrait' },
-        pagebreak:    { mode: ['css', 'legacy'], before: '.print-page-break', avoid: '.page-break-inside-avoid' } 
-      };
-      
-      try {
-        // @ts-ignore
-        window.html2pdf().set(opt).from(element).save().then(() => {
-          setIsGeneratingPDF(false); 
-        }).catch((err: any) => {
-          console.error("PDF generation failed:", err);
-          setIsGeneratingPDF(false);
-          alert("Something went wrong while generating the PDF.");
-        });
-      } catch (err) {
-        setIsGeneratingPDF(false);
-        alert("PDF engine is still loading. Please try again in a few seconds.");
-      }
-    }, 500); 
+    window.print();
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 pb-20 font-sans">
+    <div className="min-h-screen bg-gray-50 pb-20 font-sans print:bg-white print:pb-0">
       
-      {/* Full-Screen Photo Viewer (Lightbox) */}
-      {viewingPhoto && (
-        <div className="fixed inset-0 bg-black/95 z-[99999] flex flex-col items-center justify-center p-4">
-          <div className="w-full max-w-md flex justify-end mb-4">
-            <button 
-              onClick={() => setViewingPhoto(null)}
-              className="flex items-center text-white bg-white/20 px-4 py-2 rounded-full font-bold hover:bg-white/30 transition active:bg-white/40"
-            >
-              <X size={20} className="mr-1" /> Close
-            </button>
-          </div>
-          <img src={viewingPhoto} className="max-w-full max-h-[80vh] object-contain rounded-lg" alt="Full screen preview" />
-        </div>
-      )}
-
-      {/* Floating Loading Overlay */}
-      {isGeneratingPDF && (
-        <div className="fixed inset-0 bg-white/95 z-[9999] flex flex-col items-center justify-center">
-          <div className="w-16 h-16 border-8 border-gray-100 border-t-[#00843D] rounded-full animate-spin mb-6"></div>
-          <h2 className="text-3xl font-black text-[#00843D] mb-2">Generating PDF</h2>
-          <p className="text-gray-600 font-medium text-lg">Formatting your report...</p>
-        </div>
-      )}
-
-      {/* Top Header - Hidden during PDF build */}
-      {!isGeneratingPDF && (
-        <header className="bg-[#00843D] text-white p-4 shadow-md sticky top-0 z-10">
-          <div className="flex justify-between items-center max-w-md mx-auto">
-            <div 
-              className="flex items-center space-x-2 overflow-hidden cursor-pointer active:opacity-70 transition-opacity"
-              onClick={() => handleRenameStation(currentStation.id, currentStation.name)}
-              title="Tap to rename station"
-            >
-              <img src={VICTOR_LOGO} alt="Victor Logo" className="h-8 w-8 flex-shrink-0 rounded-full bg-white object-cover border-2 border-[#FFD100]" />
-              <h1 className="text-xl font-bold truncate text-white">{currentStation?.name || 'Inspection'}</h1>
-              <Pencil size={16} className="text-[#FFD100] flex-shrink-0" />
+      {/* STARTUP MODAL */}
+      {showStartupModal && (
+        <div className="fixed inset-0 bg-black/60 z-[99999] flex flex-col items-center justify-center p-4">
+          <div className="bg-white rounded-2xl w-full max-w-md p-6 shadow-2xl max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-center mb-4">
+              <img src={VICTOR_LOGO} alt="Victor Logo" className="h-12 w-12 rounded-full border-2 border-[#00843D] mr-3 object-cover" />
+              <h2 className="text-2xl font-black text-[#00843D]">New Inspection</h2>
             </div>
-            <div className="flex items-center space-x-2 ml-2 flex-shrink-0">
-              <button 
-                onClick={resetApp}
-                className="p-2 bg-[#006A31] rounded-full hover:bg-red-600 transition text-[#FFD100] hover:text-white"
-                title="Clear Data & Start Over"
-              >
-                <Trash2 size={20} />
-              </button>
-              <button 
-                onClick={exportToPDF}
-                className="p-2 bg-[#006A31] rounded-full hover:bg-[#005226] transition text-[#FFD100]"
-                title="Export to PDF"
-              >
-                <FileDown size={20} />
-              </button>
-            </div>
-          </div>
-        </header>
-      )}
-
-      {/* Main Content Area */}
-      <main 
-        id="pdf-content" 
-        // DOM RESET: This key forces React to redraw the entire DOM when generating the PDF, purging stale canvas math
-        key={isGeneratingPDF ? 'pdf' : 'mobile'} 
-        className={isGeneratingPDF ? 'w-[800px] bg-white text-black px-10 py-8 min-h-screen' : 'max-w-md mx-auto p-4'}
-      >
-        {stations.map((station, index) => (
-          <div 
-            key={station.id} 
-            className={`${index === currentIndex || isGeneratingPDF ? 'block' : 'hidden'} ${index > 0 && isGeneratingPDF ? 'print-page-break pt-8' : ''}`}
-          >
+            <p className="text-gray-600 mb-6 text-center text-sm font-medium">Enter the initial equipment details. These will copy to future stations and can be modified later.</p>
             
-            {/* Custom High-Res PDF Header */}
-            <div className={`p-4 border-b-4 border-[#00843D] mb-8 items-center justify-between ${isGeneratingPDF ? 'flex' : 'hidden'}`}>
-              <div>
-                <h1 className="text-4xl font-black text-[#00843D]">Inspection Report</h1>
-                <p className="text-gray-600 font-medium mt-2 text-lg">Generated on: {new Date().toLocaleDateString()}</p>
-              </div>
-              <img src={VICTOR_LOGO} alt="Victor Logo" className="h-20 w-20 object-contain" />
-            </div>
-
-            <h2 className={`font-bold px-4 bg-gray-100 border-[#FFD100] text-gray-900 ${isGeneratingPDF ? 'text-3xl mb-6 py-3 border-l-8 block' : 'hidden'}`}>
-              {station.name}
-            </h2>
-
             <div className="space-y-4">
-              {station.fields.map((field) => (
-                <div 
-                  key={field.id} 
-                  className={`bg-white page-break-inside-avoid ${isGeneratingPDF ? 'border-b-2 border-gray-200 pb-6 mb-6' : 'p-4 rounded-xl shadow-sm border border-gray-100'}`}
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-1">Product</label>
+                <input 
+                  type="text" 
+                  className="w-full border border-gray-300 rounded-lg p-3 text-base focus:ring-2 focus:ring-[#00843D] focus:outline-none"
+                  placeholder="e.g. Victor Edge Series"
+                  value={startupConfig.product} 
+                  onChange={(e) => setStartupConfig({...startupConfig, product: e.target.value})} 
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-1">Application</label>
+                <input 
+                  type="text" 
+                  className="w-full border border-gray-300 rounded-lg p-3 text-base focus:ring-2 focus:ring-[#00843D] focus:outline-none"
+                  placeholder="e.g. Heavy Cutting"
+                  value={startupConfig.application} 
+                  onChange={(e) => setStartupConfig({...startupConfig, application: e.target.value})} 
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-1">Nominal Settings</label>
+                <input 
+                  type="text" 
+                  className="w-full border border-gray-300 rounded-lg p-3 text-base focus:ring-2 focus:ring-[#00843D] focus:outline-none"
+                  placeholder="e.g. 40 PSIG O2, 10 PSIG Fuel"
+                  value={startupConfig.nominalSettings} 
+                  onChange={(e) => setStartupConfig({...startupConfig, nominalSettings: e.target.value})} 
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-1">Fuel Gas</label>
+                <select 
+                  className="w-full border border-gray-300 rounded-lg p-3 text-base focus:ring-2 focus:ring-[#00843D] focus:outline-none bg-white"
+                  value={startupConfig.fuel}
+                  onChange={(e) => setStartupConfig({...startupConfig, fuel: e.target.value})}
                 >
-                  
-                  <h3 className={`font-semibold text-gray-800 mb-3 ${isGeneratingPDF ? 'text-xl' : 'text-base'}`}>{field.name}</h3>
-                  
-                  {/* Status Buttons (Mobile) OR Text Status (PDF) */}
-                  {!isGeneratingPDF ? (
-                    <div className="flex space-x-3 mb-3">
-                      <button
-                        onClick={() => updateField(station.id, field.id, 'status', 'OK')}
-                        className={`flex-1 flex items-center justify-center py-2.5 rounded-lg border-2 transition text-sm ${
-                          field.status === 'OK' 
-                            ? 'bg-[#00843D] border-[#00843D] text-white font-bold' 
-                            : 'border-gray-200 text-gray-500 hover:bg-gray-50'
-                        }`}
-                      >
-                        <CheckCircle2 className="mr-2" size={18} />
-                        OK
-                      </button>
-                      <button
-                        onClick={() => updateField(station.id, field.id, 'status', 'Replace')}
-                        className={`flex-1 flex items-center justify-center py-2.5 rounded-lg border-2 transition text-sm ${
-                          field.status === 'Replace' 
-                            ? 'bg-[#FFD100] border-[#FFD100] text-gray-900 font-bold' 
-                            : 'border-gray-200 text-gray-500 hover:bg-gray-50'
-                        }`}
-                      >
-                        <AlertTriangle className="mr-2" size={18} />
-                        Replace
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="mb-2 text-lg">
-                      Status: <strong className={field.status === 'Replace' ? 'text-red-600 font-bold' : field.status === 'OK' ? 'text-[#00843D] font-bold' : 'text-gray-500'}>{field.status || 'Not Evaluated'}</strong>
-                    </div>
-                  )}
+                  <option value="">Select a fuel...</option>
+                  <option value="Acetylene">Acetylene</option>
+                  <option value="Propane">Propane</option>
+                  <option value="Propylene">Propylene</option>
+                  <option value="Natural Gas">Natural Gas</option>
+                  <option value="Other">Other</option>
+                </select>
+              </div>
+              {startupConfig.fuel === 'Other' && (
+                <div>
+                  <label className="block text-sm font-bold text-gray-700 mb-1">Specify Other Fuel</label>
+                  <input 
+                    type="text" 
+                    className="w-full border border-gray-300 rounded-lg p-3 text-base focus:ring-2 focus:ring-[#00843D] focus:outline-none"
+                    placeholder="Enter fuel type"
+                    value={startupConfig.fuelOther} 
+                    onChange={(e) => setStartupConfig({...startupConfig, fuelOther: e.target.value})} 
+                  />
+                </div>
+              )}
+              
+              <button 
+                onClick={handleStartNewInspection} 
+                className="w-full bg-[#00843D] text-white font-bold py-4 rounded-lg mt-4 shadow-lg hover:bg-[#006A31] active:scale-95 transition"
+              >
+                Start Inspection
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
-                  <div className={`flex gap-2 ${isGeneratingPDF ? 'block mt-2 w-full overflow-hidden' : ''}`}>
-                    
-                    {!isGeneratingPDF ? (
-                      <textarea
-                        className="flex-1 bg-white text-gray-900 placeholder-gray-400 border border-gray-200 rounded-lg p-2.5 text-base focus:ring-2 focus:ring-[#00843D] focus:border-[#00843D] focus:outline-none resize-none"
-                        rows={2}
-                        maxLength={200}
-                        placeholder="Additional comments..."
-                        value={field.comments}
-                        onChange={(e) => updateField(station.id, field.id, 'comments', e.target.value)}
+      {/* Main App content is hidden while startup modal is active */}
+      {!showStartupModal && currentStation && (
+        <>
+          <header className="bg-[#00843D] text-white p-4 shadow-md sticky top-0 z-10 print:hidden">
+            <div className="flex justify-between items-center max-w-md mx-auto">
+              <div 
+                className="flex items-center space-x-2 overflow-hidden cursor-pointer active:opacity-70 transition-opacity"
+                onClick={() => handleRenameStation(currentStation.id, currentStation.name)}
+                title="Tap to rename station"
+              >
+                <img src={VICTOR_LOGO} alt="Victor Logo" className="h-8 w-8 flex-shrink-0 rounded-full bg-white object-cover border-2 border-[#FFD100]" />
+                <h1 className="text-xl font-bold truncate text-white">{currentStation?.name || 'Inspection'}</h1>
+                <Pencil size={16} className="text-[#FFD100] flex-shrink-0" />
+              </div>
+              <div className="flex items-center space-x-2 ml-2 flex-shrink-0">
+                <button 
+                  onClick={resetApp}
+                  className="p-2 bg-[#006A31] rounded-full hover:bg-red-600 transition text-[#FFD100] hover:text-white"
+                  title="Clear Data & Start Over"
+                >
+                  <Trash2 size={20} />
+                </button>
+                <button 
+                  onClick={exportToPDF}
+                  className="p-2 bg-[#006A31] rounded-full hover:bg-[#005226] transition text-[#FFD100]"
+                  title="Export to PDF"
+                >
+                  <FileDown size={20} />
+                </button>
+              </div>
+            </div>
+          </header>
+
+          <main className="p-4 max-w-md mx-auto print:max-w-full print:p-0">
+            {stations.map((station, index) => (
+              <div 
+                key={station.id} 
+                className={`${index === currentIndex ? 'block' : 'hidden print:block'} ${index > 0 ? 'print-page-break' : ''}`}
+              >
+                
+                <div className="hidden print:flex p-4 border-b-4 border-[#00843D] mb-6 items-center justify-between">
+                  <div>
+                    <h1 className="text-3xl font-black text-[#00843D]">Inspection Report</h1>
+                    <p className="text-gray-600 font-medium mt-1">Generated on: {new Date().toLocaleDateString()}</p>
+                  </div>
+                  <img src={VICTOR_LOGO} alt="Victor Logo" className="h-16 w-16 object-contain" />
+                </div>
+
+                <h2 className="hidden print:block text-2xl font-bold mb-4 px-4 bg-gray-100 py-2 border-l-4 border-[#FFD100] text-gray-900">
+                  {station.name}
+                </h2>
+
+                {/* STATION CONFIGURATION CARD */}
+                <div className="bg-white p-4 rounded-xl shadow-sm border border-blue-100 mb-6 print:border-none print:shadow-none print:mb-4 print:p-0">
+                  <div className="flex items-center mb-4 print:hidden">
+                    <Settings2 size={20} className="text-[#00843D] mr-2" />
+                    <h3 className="font-bold text-gray-800">Equipment Details</h3>
+                  </div>
+                  
+                  {/* Mobile Interactive Form */}
+                  <div className="space-y-3 print:hidden">
+                    <div>
+                      <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Product</label>
+                      <input 
+                        type="text" 
+                        className="w-full border border-gray-200 rounded-lg p-2.5 text-base focus:ring-2 focus:ring-[#00843D] focus:outline-none"
+                        value={station.config.product} 
+                        onChange={(e) => updateConfig(station.id, 'product', e.target.value)} 
                       />
-                    ) : (
-                      field.comments && (
-                        <div className="mt-2 text-gray-700 bg-gray-50 py-4 px-5 rounded-lg border border-gray-100 whitespace-pre-wrap text-base break-words w-full overflow-hidden">
-                          <strong>Comments: </strong>{field.comments}
-                        </div>
-                      )
-                    )}
-                    
-                    {!isGeneratingPDF && (
-                      <div className="relative flex-shrink-0 w-20">
-                        <input
-                          type="file"
-                          accept="image/*"
-                          capture="environment"
-                          id={`photo-${station.id}-${field.id}`}
-                          className="absolute inset-0 w-full h-full opacity-0 cursor-pointer text-base"
-                          onChange={(e) => handlePhotoUpload(station.id, field.id, e)}
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Application</label>
+                        <input 
+                          type="text" 
+                          className="w-full border border-gray-200 rounded-lg p-2.5 text-base focus:ring-2 focus:ring-[#00843D] focus:outline-none"
+                          value={station.config.application} 
+                          onChange={(e) => updateConfig(station.id, 'application', e.target.value)} 
                         />
-                        <div className={`h-full flex flex-col items-center justify-center p-2 rounded-lg border-2 border-dashed ${field.photoUrl ? 'border-[#00843D] bg-green-50 text-[#00843D]' : 'border-gray-300 text-gray-400 bg-gray-50'}`}>
-                          {field.photoUrl ? <ImageIcon size={20} /> : <Camera size={20} />}
-                          <span className="text-[10px] mt-1 font-medium">{field.photoUrl ? 'Change' : 'Photo'}</span>
-                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Settings</label>
+                        <input 
+                          type="text" 
+                          className="w-full border border-gray-200 rounded-lg p-2.5 text-base focus:ring-2 focus:ring-[#00843D] focus:outline-none"
+                          value={station.config.nominalSettings} 
+                          onChange={(e) => updateConfig(station.id, 'nominalSettings', e.target.value)} 
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Fuel Gas</label>
+                      <select 
+                        className="w-full border border-gray-200 rounded-lg p-2.5 text-base focus:ring-2 focus:ring-[#00843D] focus:outline-none bg-white"
+                        value={station.config.fuel}
+                        onChange={(e) => updateConfig(station.id, 'fuel', e.target.value)}
+                      >
+                        <option value="">Select...</option>
+                        <option value="Acetylene">Acetylene</option>
+                        <option value="Propane">Propane</option>
+                        <option value="Propylene">Propylene</option>
+                        <option value="Natural Gas">Natural Gas</option>
+                        <option value="Other">Other</option>
+                      </select>
+                    </div>
+                    {station.config.fuel === 'Other' && (
+                      <div>
+                        <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Specify Other</label>
+                        <input 
+                          type="text" 
+                          className="w-full border border-gray-200 rounded-lg p-2.5 text-base focus:ring-2 focus:ring-[#00843D] focus:outline-none"
+                          value={station.config.fuelOther} 
+                          onChange={(e) => updateConfig(station.id, 'fuelOther', e.target.value)} 
+                        />
                       </div>
                     )}
                   </div>
 
-                  {/* 
-                      PHOTO DISPLAY LOGIC 
-                      Mobile View: Shows a small green button to open the Lightbox
-                      PDF View: Shows the massive expanded image for printing
-                  */}
-                  {field.photoUrl && !isGeneratingPDF && (
-                    <div className="mt-3 flex items-center justify-between p-3 bg-green-50 border border-green-200 rounded-lg">
-                      <div className="flex items-center text-[#00843D]">
-                        <ImageIcon size={20} className="mr-2" />
-                        <span className="text-sm font-semibold">Photo Attached</span>
-                      </div>
-                      <button
-                        onClick={() => setViewingPhoto(field.photoUrl)}
-                        className="text-sm font-bold bg-[#00843D] text-white px-4 py-2 rounded-md hover:bg-[#006A31] transition active:scale-95"
-                      >
-                        View Photo
-                      </button>
+                  {/* Print Layout for Config */}
+                  <div className="hidden print:grid grid-cols-2 gap-y-2 gap-x-4 border-b-2 border-gray-800 pb-4 mb-2">
+                    <div className="text-base"><strong className="text-gray-800 uppercase text-sm tracking-wide mr-2">Product:</strong> {station.config.product || 'N/A'}</div>
+                    <div className="text-base"><strong className="text-gray-800 uppercase text-sm tracking-wide mr-2">Application:</strong> {station.config.application || 'N/A'}</div>
+                    <div className="text-base"><strong className="text-gray-800 uppercase text-sm tracking-wide mr-2">Settings:</strong> {station.config.nominalSettings || 'N/A'}</div>
+                    <div className="text-base">
+                      <strong className="text-gray-800 uppercase text-sm tracking-wide mr-2">Fuel Gas:</strong> 
+                      {station.config.fuel === 'Other' ? (station.config.fuelOther || 'Other') : (station.config.fuel || 'N/A')}
                     </div>
-                  )}
-
-                  {field.photoUrl && isGeneratingPDF && (
-                    <div className="mt-4 border-none flex justify-start page-break-inside-avoid">
-                      <img 
-                        src={field.photoUrl} 
-                        alt="Inspection" 
-                        className="max-h-80 w-auto rounded-xl border border-gray-300 page-break-inside-avoid" 
-                      />
-                    </div>
-                  )}
-
+                  </div>
                 </div>
-              ))}
-            </div>
-          </div>
-        ))}
-      </main>
 
-      {!isGeneratingPDF && (
-        <footer className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 p-4 pb-safe shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
-          <div className="max-w-md mx-auto flex items-center justify-between">
-            <button 
-              onClick={() => setCurrentIndex(Math.max(0, currentIndex - 1))}
-              disabled={currentIndex === 0}
-              className={`p-2 rounded-full ${currentIndex === 0 ? 'text-gray-300' : 'text-[#00843D] hover:bg-green-50'}`}
-            >
-              <ChevronLeft size={28} />
-            </button>
-            
-            <span className="text-sm font-bold text-gray-700 bg-gray-100 px-4 py-1 rounded-full border border-gray-200">
-              {currentIndex + 1} of {stations.length}
-            </span>
-            
-            {currentIndex === stations.length - 1 ? (
+                {/* CHECKLIST FIELDS */}
+                <div className="space-y-4">
+                  {station.fields.map((field) => (
+                    <div key={field.id} className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 print:shadow-none print:border-b print:border-gray-200 print:rounded-none print:mb-2 print:p-2 page-break-inside-avoid">
+                      <h3 className="font-semibold text-gray-800 mb-3 text-sm print:text-base">{field.name}</h3>
+                      
+                      <div className="flex space-x-3 mb-3 print:hidden">
+                        <button
+                          onClick={() => updateField(station.id, field.id, 'status', 'OK')}
+                          className={`flex-1 flex items-center justify-center py-2.5 rounded-lg border-2 transition text-sm ${
+                            field.status === 'OK' 
+                              ? 'bg-[#00843D] border-[#00843D] text-white font-bold' 
+                              : 'border-gray-200 text-gray-500 hover:bg-gray-50'
+                          }`}
+                        >
+                          <CheckCircle2 className="mr-2" size={18} />
+                          OK
+                        </button>
+                        <button
+                          onClick={() => updateField(station.id, field.id, 'status', 'Replace')}
+                          className={`flex-1 flex items-center justify-center py-2.5 rounded-lg border-2 transition text-sm ${
+                            field.status === 'Replace' 
+                              ? 'bg-[#FFD100] border-[#FFD100] text-gray-900 font-bold' 
+                              : 'border-gray-200 text-gray-500 hover:bg-gray-50'
+                          }`}
+                        >
+                          <AlertTriangle className="mr-2" size={18} />
+                          Replace
+                        </button>
+                      </div>
+
+                      <div className="hidden print:block mb-2 text-base">
+                        Status: <strong className={field.status === 'Replace' ? 'text-amber-600' : 'text-green-700'}>{field.status || 'Not Evaluated'}</strong>
+                      </div>
+
+                      <div className="flex gap-2 print:block">
+                        <textarea
+                          className="flex-1 bg-white text-gray-900 placeholder-gray-400 border border-gray-200 rounded-lg p-2.5 text-base focus:ring-2 focus:ring-[#00843D] focus:border-[#00843D] focus:outline-none resize-none print:border-none print:p-0 print:text-gray-600 print:bg-transparent break-words"
+                          rows={2}
+                          maxLength={200}
+                          placeholder="Additional comments..."
+                          value={field.comments}
+                          onChange={(e) => updateField(station.id, field.id, 'comments', e.target.value)}
+                        />
+                        
+                        <div className="relative print:hidden flex-shrink-0 w-20">
+                          <input
+                            type="file"
+                            accept="image/*"
+                            capture="environment"
+                            id={`photo-${station.id}-${field.id}`}
+                            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer text-base"
+                            onChange={(e) => handlePhotoUpload(station.id, field.id, e)}
+                          />
+                          <div className={`h-full flex flex-col items-center justify-center p-2 rounded-lg border-2 border-dashed ${field.photoUrl ? 'border-[#00843D] bg-green-50 text-[#00843D]' : 'border-gray-300 text-gray-400 bg-gray-50'}`}>
+                            {field.photoUrl ? <ImageIcon size={20} /> : <Camera size={20} />}
+                            <span className="text-[10px] mt-1 font-medium">{field.photoUrl ? 'Change' : 'Photo'}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {field.photoUrl && (
+                        <div className="mt-3 relative rounded-lg overflow-hidden border border-gray-200 print:mt-2 print-photo-container">
+                          <img src={field.photoUrl} alt="Inspection" className="w-full h-32 object-cover print:h-auto print:max-h-48 print:w-auto" />
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </main>
+
+          <footer className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 p-4 pb-safe print:hidden shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
+            <div className="max-w-md mx-auto flex items-center justify-between">
               <button 
-                onClick={handleAddStation}
-                className="flex items-center text-white bg-[#00843D] font-semibold px-4 py-2 rounded-full hover:bg-[#006A31] shadow-sm transition"
+                onClick={() => setCurrentIndex(Math.max(0, currentIndex - 1))}
+                disabled={currentIndex === 0}
+                className={`p-2 rounded-full ${currentIndex === 0 ? 'text-gray-300' : 'text-[#00843D] hover:bg-green-50'}`}
               >
-                <Plus size={18} className="mr-1" /> Add
+                <ChevronLeft size={28} />
               </button>
-            ) : (
-              <button 
-                onClick={() => setCurrentIndex(Math.min(stations.length - 1, currentIndex + 1))}
-                className="p-2 rounded-full text-[#00843D] hover:bg-green-50"
-              >
-                <ChevronRight size={28} />
-              </button>
-            )}
-          </div>
-        </footer>
+              
+              <span className="text-sm font-bold text-gray-700 bg-gray-100 px-4 py-1 rounded-full border border-gray-200">
+                {currentIndex + 1} of {stations.length}
+              </span>
+              
+              {currentIndex === stations.length - 1 ? (
+                <button 
+                  onClick={handleAddStation}
+                  className="flex items-center text-white bg-[#00843D] font-semibold px-4 py-2 rounded-full hover:bg-[#006A31] shadow-sm transition"
+                >
+                  <Plus size={18} className="mr-1" /> Add
+                </button>
+              ) : (
+                <button 
+                  onClick={() => setCurrentIndex(Math.min(stations.length - 1, currentIndex + 1))}
+                  className="p-2 rounded-full text-[#00843D] hover:bg-green-50"
+                >
+                  <ChevronRight size={28} />
+                </button>
+              )}
+            </div>
+          </footer>
+        </>
       )}
 
-      {/* Safety CSS for PDF engine */}
+      {/* Safari Native Print Rules */}
       <style dangerouslySetInnerHTML={{__html: `
-        .page-break-inside-avoid {
-          page-break-inside: avoid !important;
-          break-inside: avoid !important;
+        @media print {
+          body { 
+            -webkit-print-color-adjust: exact; 
+            print-color-adjust: exact; 
+            background-color: white; 
+          }
+          .pb-safe { padding-bottom: 0; }
+          .page-break-inside-avoid { break-inside: avoid; }
+          .print-page-break { page-break-before: always; }
         }
       `}} />
     </div>
   );
 }
-
-  

@@ -1,7 +1,7 @@
-// VERSION 18
+// VERSION 19
 import { useState, useEffect } from 'react';
 import type { ChangeEvent } from 'react';
-import { Camera, Plus, FileDown, ChevronLeft, ChevronRight, CheckCircle2, AlertTriangle, Image as ImageIcon, Trash2, Pencil, Settings2, Info, AlertOctagon } from 'lucide-react';
+import { Camera, Plus, FileDown, ChevronLeft, ChevronRight, CheckCircle2, AlertTriangle, Image as ImageIcon, Trash2, Pencil, Settings2, Info, AlertOctagon, X } from 'lucide-react';
 
 const VICTOR_LOGO = "/IMG_0310.jpeg";
 
@@ -59,7 +59,7 @@ const defaultStationConfig: StationConfig = {
   fuelOther: ''
 };
 
-// --- BUTTON CONFIGURATION (Using hardcoded hex colors for inline styles to prevent CSS bugs) ---
+// --- BUTTON CONFIGURATION ---
 const STATUS_OPTIONS: StatusType[] = ['OK', 'Recommendation', 'Medium Priority', 'Immediate Fix'];
 
 const STATUS_ICONS = {
@@ -162,17 +162,27 @@ export default function App() {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isLoaded, setIsLoaded] = useState(false);
   
-  // Startup Modal State
+  // Modal & Generation States
   const [showStartupModal, setShowStartupModal] = useState(false);
   const [startupConfig, setStartupConfig] = useState<StationConfig>(defaultStationConfig);
+  const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
+  const [viewingPhoto, setViewingPhoto] = useState<string | null>(null);
+
+  // Pre-load the professional PDF generation library so it's ready instantly
+  useEffect(() => {
+    if (!document.getElementById('html2pdf-script')) {
+      const script = document.createElement('script');
+      script.id = 'html2pdf-script';
+      script.src = "https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js";
+      document.head.appendChild(script);
+    }
+  }, []);
 
   // Load data from IndexedDB
   useEffect(() => {
     const loadData = async () => {
       const savedData = await loadFromDB('stations-data');
       if (savedData && savedData.length > 0) {
-        // Backwards compatibility: inject empty config if an older session is loaded
-        // Also map 'Low Priority' to 'Medium Priority' if any old data contains it
         const migratedData = savedData.map((st: any) => ({
           ...st,
           config: st.config || { ...defaultStationConfig },
@@ -284,13 +294,70 @@ export default function App() {
     }
   };
 
+  // RESTORED: Professional html2pdf document engine
   const exportToPDF = () => {
-    window.print();
+    window.scrollTo(0, 0);
+    setIsGeneratingPDF(true);
+    
+    // Clean up invisible html2pdf page break markers leftover from previous prints
+    const staleBreaks = document.querySelectorAll('.html2pdf__page-break');
+    staleBreaks.forEach(b => b.remove());
+
+    setTimeout(() => {
+      const element = document.getElementById('pdf-content');
+      if (!element) {
+        setIsGeneratingPDF(false);
+        return;
+      }
+      
+      const opt = {
+        margin:       15, 
+        filename:     `Victor_Inspection_${new Date().toLocaleDateString().replace(/\//g, '-')}.pdf`,
+        image:        { type: 'jpeg', quality: 0.98 },
+        html2canvas:  { 
+          scale: 2, 
+          useCORS: true, 
+          scrollY: 0, 
+          windowWidth: 800 
+        },
+        jsPDF:        { unit: 'mm', format: 'letter', orientation: 'portrait' },
+        pagebreak:    { mode: ['css', 'legacy'], before: '.print-page-break', avoid: '.page-break-inside-avoid' } 
+      };
+      
+      try {
+        // @ts-ignore
+        window.html2pdf().set(opt).from(element).save().then(() => {
+          setIsGeneratingPDF(false); 
+        }).catch((err: any) => {
+          console.error("PDF generation failed:", err);
+          setIsGeneratingPDF(false);
+          alert("Something went wrong while generating the PDF.");
+        });
+      } catch (err) {
+        setIsGeneratingPDF(false);
+        alert("PDF engine is still loading. Please try again in a few seconds.");
+      }
+    }, 500); 
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 pb-20 font-sans print:bg-white print:pb-0">
+    <div className="min-h-screen bg-gray-50 pb-20 font-sans">
       
+      {/* RESTORED: Full-Screen Photo Viewer (Lightbox) */}
+      {viewingPhoto && (
+        <div className="fixed inset-0 bg-black/95 z-[99999] flex flex-col items-center justify-center p-4">
+          <div className="w-full max-w-md flex justify-end mb-4">
+            <button 
+              onClick={() => setViewingPhoto(null)}
+              className="flex items-center text-white bg-white/20 px-4 py-2 rounded-full font-bold hover:bg-white/30 transition active:bg-white/40"
+            >
+              <X size={20} className="mr-1" /> Close
+            </button>
+          </div>
+          <img src={viewingPhoto} className="max-w-full max-h-[80vh] object-contain rounded-lg" alt="Full screen preview" />
+        </div>
+      )}
+
       {/* STARTUP MODAL */}
       {showStartupModal && (
         <div className="fixed inset-0 bg-black/60 z-[99999] flex flex-col items-center justify-center p-4">
@@ -371,67 +438,91 @@ export default function App() {
         </div>
       )}
 
-      {/* Main App content is hidden while startup modal is active */}
-      {!showStartupModal && currentStation && (
-        <>
-          <header className="bg-[#00843D] text-white p-4 shadow-md sticky top-0 z-10 print:hidden">
-            <div className="flex justify-between items-center max-w-md mx-auto">
-              <div 
-                className="flex items-center space-x-2 overflow-hidden cursor-pointer active:opacity-70 transition-opacity"
-                onClick={() => handleRenameStation(currentStation.id, currentStation.name)}
-                title="Tap to rename station"
-              >
-                <img src={VICTOR_LOGO} alt="Victor Logo" className="h-8 w-8 flex-shrink-0 rounded-full bg-white object-cover border-2 border-[#FFD100]" />
-                <h1 className="text-xl font-bold truncate text-white">{currentStation?.name || 'Inspection'}</h1>
-                <Pencil size={16} className="text-[#FFD100] flex-shrink-0" />
-              </div>
-              <div className="flex items-center space-x-2 ml-2 flex-shrink-0">
-                <button 
-                  onClick={resetApp}
-                  className="p-2 bg-[#006A31] rounded-full hover:bg-red-600 transition text-[#FFD100] hover:text-white"
-                  title="Clear Data & Start Over"
-                >
-                  <Trash2 size={20} />
-                </button>
-                <button 
-                  onClick={exportToPDF}
-                  className="p-2 bg-[#006A31] rounded-full hover:bg-[#005226] transition text-[#FFD100]"
-                  title="Export to PDF"
-                >
-                  <FileDown size={20} />
-                </button>
-              </div>
+      {/* Full-Screen Loading Overlay for PDF Generation */}
+      {isGeneratingPDF && (
+        <div className="fixed inset-0 bg-white z-[9999] flex flex-col items-center justify-center">
+          <div className="w-16 h-16 border-8 border-gray-100 border-t-[#00843D] rounded-full animate-spin mb-6"></div>
+          <h2 className="text-3xl font-black text-[#00843D] mb-2">Generating PDF</h2>
+          <p className="text-gray-600 font-medium text-lg">Formatting your report...</p>
+        </div>
+      )}
+
+      {/* Top Header - Hidden during PDF build */}
+      {!isGeneratingPDF && !showStartupModal && currentStation && (
+        <header className="bg-[#00843D] text-white p-4 shadow-md sticky top-0 z-10">
+          <div className="flex justify-between items-center max-w-md mx-auto">
+            <div 
+              className="flex items-center space-x-2 overflow-hidden cursor-pointer active:opacity-70 transition-opacity"
+              onClick={() => handleRenameStation(currentStation.id, currentStation.name)}
+              title="Tap to rename station"
+            >
+              <img src={VICTOR_LOGO} alt="Victor Logo" className="h-8 w-8 flex-shrink-0 rounded-full bg-white object-cover border-2 border-[#FFD100]" />
+              <h1 className="text-xl font-bold truncate text-white">{currentStation?.name || 'Inspection'}</h1>
+              <Pencil size={16} className="text-[#FFD100] flex-shrink-0" />
             </div>
-          </header>
-
-          <main className="p-4 max-w-md mx-auto print:max-w-full print:p-0">
-            {stations.map((station, index) => (
-              <div 
-                key={station.id} 
-                className={`${index === currentIndex ? 'block' : 'hidden print:block'} ${index > 0 ? 'print-page-break' : ''}`}
+            <div className="flex items-center space-x-2 ml-2 flex-shrink-0">
+              <button 
+                onClick={resetApp}
+                className="p-2 bg-[#006A31] rounded-full hover:bg-red-600 transition text-[#FFD100] hover:text-white"
+                title="Clear Data & Start Over"
               >
-                
-                <div className="hidden print:flex p-4 border-b-4 border-[#00843D] mb-6 items-center justify-between">
-                  <div>
-                    <h1 className="text-3xl font-black text-[#00843D]">Inspection Report</h1>
-                    <p className="text-gray-600 font-medium mt-1">Generated on: {new Date().toLocaleDateString()}</p>
-                  </div>
-                  <img src={VICTOR_LOGO} alt="Victor Logo" className="h-16 w-16 object-contain" />
-                </div>
+                <Trash2 size={20} />
+              </button>
+              <button 
+                onClick={exportToPDF}
+                className="p-2 bg-[#006A31] rounded-full hover:bg-[#005226] transition text-[#FFD100]"
+                title="Export to PDF"
+              >
+                <FileDown size={20} />
+              </button>
+            </div>
+          </div>
+        </header>
+      )}
 
-                <h2 className="hidden print:block text-2xl font-bold mb-4 px-4 bg-gray-100 py-2 border-l-4 border-[#FFD100] text-gray-900">
+      {/* Main Content Area */}
+      {!showStartupModal && currentStation && (
+        <main 
+          id="pdf-content" 
+          key={isGeneratingPDF ? 'pdf' : 'mobile'} // Purges previous html2canvas DOM calculations to prevent splitting
+          className={`mx-auto ${isGeneratingPDF ? 'w-[800px] bg-white text-black px-10 py-8 min-h-screen' : 'max-w-md p-4'}`}
+        >
+          {stations.map((station, index) => (
+            <div 
+              key={station.id} 
+              className={`${index === currentIndex || isGeneratingPDF ? 'block' : 'hidden'} ${index > 0 && isGeneratingPDF ? 'print-page-break pt-8' : ''}`}
+            >
+              
+              {/* Custom High-Res PDF Header */}
+              {isGeneratingPDF && (
+                <div className="flex p-4 border-b-4 border-[#00843D] mb-8 items-center justify-between">
+                  <div>
+                    <h1 className="text-4xl font-black text-[#00843D]">Inspection Report</h1>
+                    <p className="text-gray-600 font-medium mt-2 text-lg">Generated on: {new Date().toLocaleDateString()}</p>
+                  </div>
+                  <img src={VICTOR_LOGO} alt="Victor Logo" className="h-20 w-20 object-contain" />
+                </div>
+              )}
+
+              {/* Station Title */}
+              {isGeneratingPDF && (
+                <h2 className="font-bold px-4 bg-gray-100 border-[#FFD100] text-gray-900 text-3xl mb-6 py-3 border-l-8 block">
                   {station.name}
                 </h2>
+              )}
 
-                {/* STATION CONFIGURATION CARD */}
-                <div className="bg-white p-4 rounded-xl shadow-sm border border-blue-100 mb-6 print:border-none print:shadow-none print:mb-4 print:p-0 page-break-inside-avoid">
-                  <div className="flex items-center mb-4 print:hidden">
+              {/* EQUIPMENT DETAILS CARD */}
+              <div className={`bg-white rounded-xl shadow-sm border border-blue-100 ${isGeneratingPDF ? 'p-0 mb-6 shadow-none border-none' : 'p-4 mb-6'}`}>
+                {!isGeneratingPDF && (
+                  <div className="flex items-center mb-4">
                     <Settings2 size={20} className="text-[#00843D] mr-2" />
                     <h3 className="font-bold text-gray-800">Equipment Details</h3>
                   </div>
-                  
-                  {/* Mobile Interactive Form */}
-                  <div className="space-y-3 print:hidden">
+                )}
+                
+                {/* Mobile Interactive Form */}
+                {!isGeneratingPDF && (
+                  <div className="space-y-3">
                     <div>
                       <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Product</label>
                       <input 
@@ -488,27 +579,35 @@ export default function App() {
                       </div>
                     )}
                   </div>
+                )}
 
-                  {/* Print Layout for Config */}
-                  <div className="hidden print:grid grid-cols-2 gap-y-2 gap-x-4 border-b-2 border-gray-800 pb-4 mb-2">
-                    <div className="text-base"><strong className="text-gray-800 uppercase text-sm tracking-wide mr-2">Product:</strong> {station.config?.product || 'N/A'}</div>
-                    <div className="text-base"><strong className="text-gray-800 uppercase text-sm tracking-wide mr-2">Application:</strong> {station.config?.application || 'N/A'}</div>
-                    <div className="text-base"><strong className="text-gray-800 uppercase text-sm tracking-wide mr-2">Settings:</strong> {station.config?.nominalSettings || 'N/A'}</div>
-                    <div className="text-base">
-                      <strong className="text-gray-800 uppercase text-sm tracking-wide mr-2">Fuel Gas:</strong> 
+                {/* PDF Layout for Config */}
+                {isGeneratingPDF && (
+                  <div className="grid grid-cols-2 gap-y-3 gap-x-6 border-b-2 border-gray-300 pb-6 mb-2">
+                    <div className="text-lg"><strong className="text-gray-800 uppercase text-sm tracking-wider mr-2">Product:</strong> {station.config?.product || 'N/A'}</div>
+                    <div className="text-lg"><strong className="text-gray-800 uppercase text-sm tracking-wider mr-2">Application:</strong> {station.config?.application || 'N/A'}</div>
+                    <div className="text-lg"><strong className="text-gray-800 uppercase text-sm tracking-wider mr-2">Settings:</strong> {station.config?.nominalSettings || 'N/A'}</div>
+                    <div className="text-lg">
+                      <strong className="text-gray-800 uppercase text-sm tracking-wider mr-2">Fuel Gas:</strong> 
                       {station.config?.fuel === 'Other' ? (station.config?.fuelOther || 'Other') : (station.config?.fuel || 'N/A')}
                     </div>
                   </div>
-                </div>
+                )}
+              </div>
 
-                {/* CHECKLIST FIELDS */}
-                <div className="space-y-4">
-                  {station.fields.map((field) => (
-                    <div key={field.id} className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 print:shadow-none print:border-b print:border-gray-200 print:rounded-none print:mb-2 print:p-2 page-break-inside-avoid">
-                      <h3 className="font-semibold text-gray-800 mb-3 text-sm print:text-base">{field.name}</h3>
-                      
-                      {/* Status Buttons (Mobile View - 4 Button Grid) */}
-                      <div className="grid grid-cols-2 gap-2 mb-3 print:hidden">
+              {/* CHECKLIST FIELDS */}
+              <div className="space-y-4">
+                {station.fields.map((field) => (
+                  <div 
+                    key={field.id} 
+                    className={`bg-white page-break-inside-avoid ${isGeneratingPDF ? 'border-b-2 border-gray-200 pb-6 mb-6' : 'p-4 rounded-xl shadow-sm border border-gray-100'}`}
+                  >
+                    
+                    <h3 className={`font-semibold text-gray-800 mb-3 ${isGeneratingPDF ? 'text-xl' : 'text-base'}`}>{field.name}</h3>
+                    
+                    {/* Status Buttons (Mobile View) */}
+                    {!isGeneratingPDF && (
+                      <div className="grid grid-cols-2 gap-2 mb-3">
                         {STATUS_OPTIONS.map((statusKey) => {
                           const isSelected = field.status === statusKey;
                           const colors = STATUS_COLORS[statusKey as keyof typeof STATUS_COLORS];
@@ -531,45 +630,54 @@ export default function App() {
                           );
                         })}
                       </div>
+                    )}
 
-                      {/* Status Rendering (PDF View - Native Print Badge) */}
-                      <div className="hidden print:block mb-3">
-                        <div className="flex items-center">
-                          <span className="mr-3 font-bold text-gray-700 text-base">Status:</span>
-                          {field.status && field.status in STATUS_COLORS ? (
-                            <div 
-                              className="inline-flex items-center px-3 py-1.5 rounded-lg border-2 text-sm font-bold"
-                              style={{
-                                backgroundColor: STATUS_COLORS[field.status as keyof typeof STATUS_COLORS].bg,
-                                borderColor: STATUS_COLORS[field.status as keyof typeof STATUS_COLORS].bg,
-                                color: STATUS_COLORS[field.status as keyof typeof STATUS_COLORS].textSelected,
-                                WebkitPrintColorAdjust: 'exact',
-                                printColorAdjust: 'exact'
-                              }}
-                            >
-                              {(() => {
-                                const Icon = STATUS_ICONS[field.status as keyof typeof STATUS_ICONS];
-                                return <Icon className="mr-1.5" size={16} />;
-                              })()}
-                              {field.status}
-                            </div>
-                          ) : (
-                            <span className="text-gray-500 font-bold text-base">Not Evaluated</span>
-                          )}
-                        </div>
+                    {/* Status Rendering (PDF View) */}
+                    {isGeneratingPDF && (
+                      <div className="mb-3 flex items-center">
+                        <span className="mr-3 font-bold text-gray-700 text-lg">Status:</span>
+                        {field.status && field.status in STATUS_COLORS ? (
+                          <div 
+                            className="inline-flex items-center px-4 py-1.5 rounded-lg border-2 text-base font-bold"
+                            style={{
+                              backgroundColor: STATUS_COLORS[field.status as keyof typeof STATUS_COLORS].bg,
+                              borderColor: STATUS_COLORS[field.status as keyof typeof STATUS_COLORS].bg,
+                              color: STATUS_COLORS[field.status as keyof typeof STATUS_COLORS].textSelected
+                            }}
+                          >
+                            {(() => {
+                              const Icon = STATUS_ICONS[field.status as keyof typeof STATUS_ICONS];
+                              return <Icon className="mr-1.5" size={18} />;
+                            })()}
+                            {field.status}
+                          </div>
+                        ) : (
+                          <span className="text-gray-500 font-bold text-lg">Not Evaluated</span>
+                        )}
                       </div>
+                    )}
 
-                      <div className="flex gap-2 print:block">
+                    <div className={`flex gap-2 ${isGeneratingPDF ? 'block mt-2 w-full overflow-hidden' : ''}`}>
+                      
+                      {!isGeneratingPDF ? (
                         <textarea
-                          className="flex-1 bg-white text-gray-900 placeholder-gray-400 border border-gray-200 rounded-lg p-2.5 text-base focus:ring-2 focus:ring-[#00843D] focus:border-[#00843D] focus:outline-none resize-none print:border-none print:p-0 print:text-gray-600 print:bg-transparent break-words"
+                          className="flex-1 bg-white text-gray-900 placeholder-gray-400 border border-gray-200 rounded-lg p-2.5 text-base focus:ring-2 focus:ring-[#00843D] focus:border-[#00843D] focus:outline-none resize-none"
                           rows={2}
                           maxLength={200}
                           placeholder="Additional comments..."
                           value={field.comments}
                           onChange={(e) => updateField(station.id, field.id, 'comments', e.target.value)}
                         />
-                        
-                        <div className="relative print:hidden flex-shrink-0 w-20">
+                      ) : (
+                        field.comments && (
+                          <div className="mt-2 text-gray-700 bg-gray-50 py-4 px-5 rounded-lg border border-gray-100 whitespace-pre-wrap text-base break-words w-full overflow-hidden">
+                            <strong>Comments: </strong>{field.comments}
+                          </div>
+                        )
+                      )}
+                      
+                      {!isGeneratingPDF && (
+                        <div className="relative flex-shrink-0 w-20">
                           <input
                             type="file"
                             accept="image/*"
@@ -583,65 +691,84 @@ export default function App() {
                             <span className="text-[10px] mt-1 font-medium">{field.photoUrl ? 'Change' : 'Photo'}</span>
                           </div>
                         </div>
-                      </div>
-
-                      {field.photoUrl && (
-                        <div className="mt-3 relative rounded-lg overflow-hidden border border-gray-200 print:mt-2 print-photo-container">
-                          <img src={field.photoUrl} alt="Inspection" className="w-full h-32 object-cover print:h-auto print:max-h-48 print:w-auto" />
-                        </div>
                       )}
                     </div>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </main>
 
-          <footer className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 p-4 pb-safe print:hidden shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
-            <div className="max-w-md mx-auto flex items-center justify-between">
-              <button 
-                onClick={() => setCurrentIndex(Math.max(0, currentIndex - 1))}
-                disabled={currentIndex === 0}
-                className={`p-2 rounded-full ${currentIndex === 0 ? 'text-gray-300' : 'text-[#00843D] hover:bg-green-50'}`}
-              >
-                <ChevronLeft size={28} />
-              </button>
-              
-              <span className="text-sm font-bold text-gray-700 bg-gray-100 px-4 py-1 rounded-full border border-gray-200">
-                {currentIndex + 1} of {stations.length}
-              </span>
-              
-              {currentIndex === stations.length - 1 ? (
-                <button 
-                  onClick={handleAddStation}
-                  className="flex items-center text-white bg-[#00843D] font-semibold px-4 py-2 rounded-full hover:bg-[#006A31] shadow-sm transition"
-                >
-                  <Plus size={18} className="mr-1" /> Add
-                </button>
-              ) : (
-                <button 
-                  onClick={() => setCurrentIndex(Math.min(stations.length - 1, currentIndex + 1))}
-                  className="p-2 rounded-full text-[#00843D] hover:bg-green-50"
-                >
-                  <ChevronRight size={28} />
-                </button>
-              )}
+                    {/* RESTORED: Lightbox "View Photo" logic to protect Safari Memory on Mobile */}
+                    {field.photoUrl && !isGeneratingPDF && (
+                      <div className="mt-3 flex items-center justify-between p-3 bg-green-50 border border-green-200 rounded-lg">
+                        <div className="flex items-center text-[#00843D]">
+                          <ImageIcon size={20} className="mr-2" />
+                          <span className="text-sm font-semibold">Photo Attached</span>
+                        </div>
+                        <button
+                          onClick={() => setViewingPhoto(field.photoUrl)}
+                          className="text-sm font-bold bg-[#00843D] text-white px-4 py-2 rounded-md hover:bg-[#006A31] transition active:scale-95"
+                        >
+                          View Photo
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Full Image only renders when actually generating PDF */}
+                    {field.photoUrl && isGeneratingPDF && (
+                      <div className="mt-4 border-none flex justify-start page-break-inside-avoid">
+                        <img 
+                          src={field.photoUrl} 
+                          alt="Inspection" 
+                          className="max-h-80 w-auto rounded-xl border border-gray-300 page-break-inside-avoid" 
+                        />
+                      </div>
+                    )}
+
+                  </div>
+                ))}
+              </div>
             </div>
-          </footer>
-        </>
+          ))}
+        </main>
       )}
 
-      {/* Safari Native Print Rules */}
+      {/* Bottom Navigation */}
+      {!isGeneratingPDF && !showStartupModal && (
+        <footer className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 p-4 pb-safe shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
+          <div className="max-w-md mx-auto flex items-center justify-between">
+            <button 
+              onClick={() => setCurrentIndex(Math.max(0, currentIndex - 1))}
+              disabled={currentIndex === 0}
+              className={`p-2 rounded-full ${currentIndex === 0 ? 'text-gray-300' : 'text-[#00843D] hover:bg-green-50'}`}
+            >
+              <ChevronLeft size={28} />
+            </button>
+            
+            <span className="text-sm font-bold text-gray-700 bg-gray-100 px-4 py-1 rounded-full border border-gray-200">
+              {currentIndex + 1} of {stations.length}
+            </span>
+            
+            {currentIndex === stations.length - 1 ? (
+              <button 
+                onClick={handleAddStation}
+                className="flex items-center text-white bg-[#00843D] font-semibold px-4 py-2 rounded-full hover:bg-[#006A31] shadow-sm transition"
+              >
+                <Plus size={18} className="mr-1" /> Add
+              </button>
+            ) : (
+              <button 
+                onClick={() => setCurrentIndex(Math.min(stations.length - 1, currentIndex + 1))}
+                className="p-2 rounded-full text-[#00843D] hover:bg-green-50"
+              >
+                <ChevronRight size={28} />
+              </button>
+            )}
+          </div>
+        </footer>
+      )}
+
+      {/* Simple Page Break CSS for html2pdf */}
       <style dangerouslySetInnerHTML={{__html: `
-        @media print {
-          body { 
-            -webkit-print-color-adjust: exact; 
-            print-color-adjust: exact; 
-            background-color: white; 
-          }
-          .pb-safe { padding-bottom: 0; }
-          .page-break-inside-avoid { break-inside: avoid; }
-          .print-page-break { page-break-before: always; }
+        .page-break-inside-avoid {
+          page-break-inside: avoid !important;
+          break-inside: avoid !important;
         }
       `}} />
     </div>

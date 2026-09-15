@@ -1,4 +1,4 @@
-// VERSION 16
+// VERSION 17
 import { useState, useEffect } from 'react';
 import type { ChangeEvent } from 'react';
 import { Camera, Plus, FileDown, ChevronLeft, ChevronRight, CheckCircle2, AlertTriangle, Image as ImageIcon, Trash2, Pencil, Settings2, Info, AlertOctagon } from 'lucide-react';
@@ -59,30 +59,21 @@ const defaultStationConfig: StationConfig = {
   fuelOther: ''
 };
 
-// --- BUTTON CONFIGURATION ---
+// --- BUTTON CONFIGURATION (Using hardcoded hex colors for inline styles to prevent CSS bugs) ---
 const STATUS_OPTIONS: StatusType[] = ['OK', 'Recommendation', 'Low Priority', 'Immediate Fix'];
 
-const STATUS_CONFIG: Record<Exclude<StatusType, null>, { icon: any, unselected: string, selected: string }> = {
-  'OK': {
-    icon: CheckCircle2,
-    unselected: 'bg-white border-[#00843D] text-[#00843D] hover:bg-green-50',
-    selected: 'bg-[#00843D] border-[#00843D] text-white'
-  },
-  'Recommendation': {
-    icon: Info,
-    unselected: 'bg-white border-gray-500 text-gray-500 hover:bg-gray-50',
-    selected: 'bg-gray-500 border-gray-500 text-white'
-  },
-  'Low Priority': {
-    icon: AlertTriangle,
-    unselected: 'bg-white border-[#FFD100] text-gray-700 hover:bg-yellow-50',
-    selected: 'bg-[#FFD100] border-[#FFD100] text-gray-900'
-  },
-  'Immediate Fix': {
-    icon: AlertOctagon,
-    unselected: 'bg-white border-red-600 text-red-600 hover:bg-red-50',
-    selected: 'bg-red-600 border-red-600 text-white'
-  }
+const STATUS_ICONS = {
+  'OK': CheckCircle2,
+  'Recommendation': Info,
+  'Low Priority': AlertTriangle,
+  'Immediate Fix': AlertOctagon
+};
+
+const STATUS_COLORS = {
+  'OK': { bg: '#00843D', textUnselected: '#00843D', textSelected: '#ffffff' },
+  'Recommendation': { bg: '#6b7280', textUnselected: '#6b7280', textSelected: '#ffffff' },
+  'Low Priority': { bg: '#FFD100', textUnselected: '#374151', textSelected: '#111827' },
+  'Immediate Fix': { bg: '#dc2626', textUnselected: '#dc2626', textSelected: '#ffffff' }
 };
 
 // --- INDEXED DB SETUP ---
@@ -171,15 +162,16 @@ export default function App() {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isLoaded, setIsLoaded] = useState(false);
   
+  // Startup Modal State
   const [showStartupModal, setShowStartupModal] = useState(false);
   const [startupConfig, setStartupConfig] = useState<StationConfig>(defaultStationConfig);
 
+  // Load data from IndexedDB
   useEffect(() => {
     const loadData = async () => {
       const savedData = await loadFromDB('stations-data');
-      
       if (savedData && savedData.length > 0) {
-        // Backwards compatibility for older saves missing the config
+        // Backwards compatibility: inject empty config if an older session is loaded
         const migratedData = savedData.map((st: any) => ({
           ...st,
           config: st.config || { ...defaultStationConfig }
@@ -194,10 +186,9 @@ export default function App() {
     loadData();
   }, []);
 
+  // Auto-save data
   useEffect(() => {
-    if (isLoaded && stations.length > 0) {
-      saveToDB('stations-data', stations);
-    }
+    if (isLoaded && stations.length > 0) saveToDB('stations-data', stations);
   }, [stations, isLoaded]);
 
   if (!isLoaded) {
@@ -295,6 +286,7 @@ export default function App() {
   return (
     <div className="min-h-screen bg-gray-50 pb-20 font-sans print:bg-white print:pb-0">
       
+      {/* STARTUP MODAL */}
       {showStartupModal && (
         <div className="fixed inset-0 bg-black/60 z-[99999] flex flex-col items-center justify-center p-4">
           <div className="bg-white rounded-2xl w-full max-w-md p-6 shadow-2xl max-h-[90vh] overflow-y-auto">
@@ -374,6 +366,7 @@ export default function App() {
         </div>
       )}
 
+      {/* Main App content is hidden while startup modal is active */}
       {!showStartupModal && currentStation && (
         <>
           <header className="bg-[#00843D] text-white p-4 shadow-md sticky top-0 z-10 print:hidden">
@@ -510,19 +503,23 @@ export default function App() {
                       <h3 className="font-semibold text-gray-800 mb-3 text-sm print:text-base">{field.name}</h3>
                       
                       {/* Status Buttons (Mobile View - 4 Button Grid) */}
+                      {/* V17 FIX: Inline styles enforce exact background/text colors, completely bypassing Tailwind specificity bugs */}
                       <div className="grid grid-cols-2 gap-2 mb-3 print:hidden">
                         {STATUS_OPTIONS.map((statusKey) => {
-                          const config = STATUS_CONFIG[statusKey];
                           const isSelected = field.status === statusKey;
-                          const Icon = config.icon;
+                          const colors = STATUS_COLORS[statusKey as keyof typeof STATUS_COLORS];
+                          const Icon = STATUS_ICONS[statusKey as keyof typeof STATUS_ICONS];
                           
                           return (
                             <button
                               key={statusKey}
                               onClick={() => updateField(station.id, field.id, 'status', statusKey)}
-                              className={`flex items-center justify-center py-2.5 rounded-lg border-2 transition text-sm font-bold ${
-                                isSelected ? config.selected : config.unselected
-                              }`}
+                              className="flex items-center justify-center py-2.5 rounded-lg border-2 transition text-sm font-bold"
+                              style={{
+                                backgroundColor: isSelected ? colors.bg : '#ffffff',
+                                borderColor: colors.bg,
+                                color: isSelected ? colors.textSelected : colors.textUnselected
+                              }}
                             >
                               <Icon className="mr-1.5" size={16} />
                               {statusKey}
@@ -535,10 +532,19 @@ export default function App() {
                       <div className="hidden print:block mb-3">
                         <div className="flex items-center">
                           <span className="mr-3 font-bold text-gray-700 text-base">Status:</span>
-                          {field.status && field.status in STATUS_CONFIG ? (
-                            <div className={`inline-flex items-center px-3 py-1.5 rounded-lg border-2 text-sm font-bold ${STATUS_CONFIG[field.status].selected}`}>
+                          {field.status && field.status in STATUS_COLORS ? (
+                            <div 
+                              className="inline-flex items-center px-3 py-1.5 rounded-lg border-2 text-sm font-bold"
+                              style={{
+                                backgroundColor: STATUS_COLORS[field.status as keyof typeof STATUS_COLORS].bg,
+                                borderColor: STATUS_COLORS[field.status as keyof typeof STATUS_COLORS].bg,
+                                color: STATUS_COLORS[field.status as keyof typeof STATUS_COLORS].textSelected,
+                                WebkitPrintColorAdjust: 'exact',
+                                printColorAdjust: 'exact'
+                              }}
+                            >
                               {(() => {
-                                const Icon = STATUS_CONFIG[field.status].icon;
+                                const Icon = STATUS_ICONS[field.status as keyof typeof STATUS_ICONS];
                                 return <Icon className="mr-1.5" size={16} />;
                               })()}
                               {field.status}

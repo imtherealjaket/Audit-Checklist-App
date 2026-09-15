@@ -1,4 +1,4 @@
-// VERSION 17
+// VERSION 18
 import { useState, useEffect } from 'react';
 import type { ChangeEvent } from 'react';
 import { Camera, Plus, FileDown, ChevronLeft, ChevronRight, CheckCircle2, AlertTriangle, Image as ImageIcon, Trash2, Pencil, Settings2, Info, AlertOctagon } from 'lucide-react';
@@ -18,7 +18,7 @@ const excelRows = [
 ];
 
 // TypeScript Definitions
-export type StatusType = 'OK' | 'Recommendation' | 'Low Priority' | 'Immediate Fix' | null;
+export type StatusType = 'OK' | 'Recommendation' | 'Medium Priority' | 'Immediate Fix' | null;
 
 interface Field {
   id: string;
@@ -60,19 +60,19 @@ const defaultStationConfig: StationConfig = {
 };
 
 // --- BUTTON CONFIGURATION (Using hardcoded hex colors for inline styles to prevent CSS bugs) ---
-const STATUS_OPTIONS: StatusType[] = ['OK', 'Recommendation', 'Low Priority', 'Immediate Fix'];
+const STATUS_OPTIONS: StatusType[] = ['OK', 'Recommendation', 'Medium Priority', 'Immediate Fix'];
 
 const STATUS_ICONS = {
   'OK': CheckCircle2,
   'Recommendation': Info,
-  'Low Priority': AlertTriangle,
+  'Medium Priority': AlertTriangle,
   'Immediate Fix': AlertOctagon
 };
 
 const STATUS_COLORS = {
   'OK': { bg: '#00843D', textUnselected: '#00843D', textSelected: '#ffffff' },
   'Recommendation': { bg: '#6b7280', textUnselected: '#6b7280', textSelected: '#ffffff' },
-  'Low Priority': { bg: '#FFD100', textUnselected: '#374151', textSelected: '#111827' },
+  'Medium Priority': { bg: '#FFD100', textUnselected: '#374151', textSelected: '#111827' },
   'Immediate Fix': { bg: '#dc2626', textUnselected: '#dc2626', textSelected: '#ffffff' }
 };
 
@@ -172,9 +172,14 @@ export default function App() {
       const savedData = await loadFromDB('stations-data');
       if (savedData && savedData.length > 0) {
         // Backwards compatibility: inject empty config if an older session is loaded
+        // Also map 'Low Priority' to 'Medium Priority' if any old data contains it
         const migratedData = savedData.map((st: any) => ({
           ...st,
-          config: st.config || { ...defaultStationConfig }
+          config: st.config || { ...defaultStationConfig },
+          fields: st.fields.map((f: any) => ({
+            ...f,
+            status: f.status === 'Low Priority' ? 'Medium Priority' : f.status
+          }))
         }));
         setStations(migratedData);
       } else {
@@ -503,7 +508,6 @@ export default function App() {
                       <h3 className="font-semibold text-gray-800 mb-3 text-sm print:text-base">{field.name}</h3>
                       
                       {/* Status Buttons (Mobile View - 4 Button Grid) */}
-                      {/* V17 FIX: Inline styles enforce exact background/text colors, completely bypassing Tailwind specificity bugs */}
                       <div className="grid grid-cols-2 gap-2 mb-3 print:hidden">
                         {STATUS_OPTIONS.map((statusKey) => {
                           const isSelected = field.status === statusKey;
